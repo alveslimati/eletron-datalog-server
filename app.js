@@ -12,13 +12,34 @@ dotenv.config();
 const app = express();
 
 // Middleware for CORS
+import cors from 'cors';
+
+const allowedOrigins = [
+  'http://localhost:5173', // Desenvolvimento local
+  'https://main.d1o387bagj6v4q.amplifyapp.com', // Produção no Amplify
+];
+
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true,
-  optionsSuccessStatus: 200,
-  methods: ["GET", "POST", "PUT", "DELETE"],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      // Permitir a requisição
+      callback(null, true);
+    } else {
+      // Bloqueia a requisição
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // Habilita envio de cookies/autenticação
+  optionsSuccessStatus: 200, // Para navegadores mais antigos no preflight
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Permitir esses métodos
+  allowedHeaders: ['Content-Type', 'Authorization'], // Permitir esses cabeçalhos
 };
+
+// Apply middleware de CORS
 app.use(cors(corsOptions));
+
+// Habilita preflight requests
+app.options('*', cors(corsOptions));
 app.use(express.json()); // Middleware para JSON
 
 // Conecta ao banco de dados
