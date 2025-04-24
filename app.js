@@ -11,9 +11,6 @@ dotenv.config();
 
 const app = express();
 
-// Middleware for CORS
-import cors from 'cors';
-
 const allowedOrigins = [
   'http://localhost:5173', // Desenvolvimento local
   'https://main.d1o387bagj6v4q.amplifyapp.com', // Produção no Amplify
