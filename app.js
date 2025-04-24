@@ -6,6 +6,7 @@ import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import mqttHandler from './mqttHandler.js';
 
+
 dotenv.config();
 
 const app = express();
