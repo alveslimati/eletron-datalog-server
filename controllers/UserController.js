@@ -46,7 +46,7 @@ const UserController = {
 
       const token = jwt.sign({ id: user._id }, process.env.SECRET, { expiresIn: '30d' });
 
-      res.status(200).json({ message: 'Autenticação bem-sucedida!', token });
+      res.status(200).json({ message: 'Autenticação bem-sucedida!', token, user: {  name: user.name } });
     } catch (error) {
       res.status(500).json({ message: 'Erro ao autenticar usuário.' });
     }
