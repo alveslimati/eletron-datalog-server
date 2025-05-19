@@ -1,8 +1,11 @@
+// routes/messageRoutes.js
 import express from 'express';
 import messageController from '../controllers/MessageController.js';
+import checkToken from '../middleware/auth.js'; // Importa o middleware
 
 const router = express.Router();
 
-router.get('/', messageController.getMessages);
+// Aplica o middleware checkToken a esta rota
+router.get('/', checkToken, messageController.getMessages);
 
 export default router;
