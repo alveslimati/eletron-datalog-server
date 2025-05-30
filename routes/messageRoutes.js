@@ -7,5 +7,8 @@ const router = express.Router();
 
 // Aplica o middleware checkToken a esta rota
 router.get('/', checkToken, messageController.getMessages);
+router.get('/api/messages', checkToken, MessageController.getMessages);
+router.get('/api/messagesByDate', checkToken, MessageController.getMessagesByDate);
+
 
 export default router;
