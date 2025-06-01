@@ -79,7 +79,7 @@ const MessageController = {
 
     // Nova consulta para obter mensagens por data específica
     const messagesResult = await pool.query(
-      'SELECT * FROM producao WHERE DATE(timestamp) = $1 AND maquina_id = $2',
+      'SELECT * FROM producao WHERE DATE(timestamp) = $1 AND maquina_id = ANY($2::int[])',
       [date, allowedMachineIds]
     );
 
@@ -88,7 +88,7 @@ const MessageController = {
 
   } catch (error) {
     console.error('Erro ao buscar mensagens por data:', error);
-    res.status(500).json({ message: 'Erro interno ao buscar dados por data.' });
+    res.status(500).json({ message: 'Erro interno ao buscar dados por data.' + error});
   }
 },
 };
