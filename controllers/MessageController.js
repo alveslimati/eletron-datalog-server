@@ -41,45 +41,56 @@ const MessageController = {
   },
 
   // Nova função para buscar mensagens por data
-  async getMessagesByDate(req, res) {
-    try {
-      const { date } = req.query;
-      const userId = req.user.id;
+ async getMessagesByDate(req, res) {
+  try {
+    console.log("Iniciando método getMessagesByDate.");
 
-      const user = await User.findById(userId).select('codigoHex');
-      if (!user || !user.codigoHex) {
-        return res.status(404).json({ message: 'Usuário ou dispositivo não encontrado.' });
-      }
-      const userCodigoHex = user.codigoHex;
+    const { date } = req.query;
+    console.log("Data recebida:", date);
 
-      const cnpjResult = await pool.query(
-        'SELECT cnpj FROM dispositivo_esp32 WHERE codigo_hex = $1',
-        [userCodigoHex]
-      );
-      if (cnpjResult.rows.length === 0) {
-        return res.status(404).json({ message: 'Dispositivo não encontrado ou não associado a um CNPJ.' });
-      }
-      const userCnpj = cnpjResult.rows[0].cnpj;
+    const userId = req.user.id;
+    console.log("ID do usuário:", userId);
 
-      const maquinasResult = await pool.query(
-        'SELECT DISTINCT id_maquina FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL',
-        [userCnpj]
-      );
-      const allowedMachineIds = maquinasResult.rows.map(row => row.id_maquina);
-
-      // Nova consulta para obter mensagens por data específica
-      const messagesResult = await pool.query(
-        'SELECT * FROM producao WHERE DATE(timestamp) = $1 AND maquina_id = ANY($2::int[])',
-        [date, allowedMachineIds]
-      );
-
-      res.json(messagesResult.rows);
-
-    } catch (error) {
-      console.error('Erro ao buscar mensagens por data:', error);
-      res.status(500).json({ message: 'Erro interno ao buscar dados por data.' });
+    const user = await User.findById(userId).select('codigoHex');
+    if (!user || !user.codigoHex) {
+      console.log("Usuário ou código hexadecimal não encontrado.");
+      return res.status(404).json({ message: 'Usuário ou dispositivo não encontrado.' });
     }
-  },
+    const userCodigoHex = user.codigoHex;
+    console.log("Código hexadecimal do usuário:", userCodigoHex);
+
+    const cnpjResult = await pool.query(
+      'SELECT cnpj FROM dispositivo_esp32 WHERE codigo_hex = $1',
+      [userCodigoHex]
+    );
+    if (cnpjResult.rows.length === 0) {
+      console.log("CNPJ não encontrado para o código hexadecimal fornecido.");
+      return res.status(404).json({ message: 'Dispositivo não encontrado ou não associado a um CNPJ.' });
+    }
+    const userCnpj = cnpjResult.rows[0].cnpj;
+    console.log("CNPJ do usuário:", userCnpj);
+
+    const maquinasResult = await pool.query(
+      'SELECT DISTINCT id_maquina FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL',
+      [userCnpj]
+    );
+    const allowedMachineIds = maquinasResult.rows.map(row => row.id_maquina);
+    console.log("IDs de máquinas permitidas:", allowedMachineIds);
+
+    // Nova consulta para obter mensagens por data específica
+    const messagesResult = await pool.query(
+      'SELECT * FROM producao WHERE DATE(timestamp) = $1 AND maquina_id = $2',
+      [date, allowedMachineIds]
+    );
+
+    console.log("Mensagens encontradas:", messagesResult.rows.length);
+    res.json(messagesResult.rows);
+
+  } catch (error) {
+    console.error('Erro ao buscar mensagens por data:', error);
+    res.status(500).json({ message: 'Erro interno ao buscar dados por data.' });
+  }
+},
 };
 
 export default MessageController;
