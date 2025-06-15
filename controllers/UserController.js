@@ -132,6 +132,38 @@ const UserController = {
       res.status(500).json({ message: 'Erro ao buscar usuário.' });
     }
   },
+ 
+// GET: Buscar configuração dos gráficos do usuário
+async getChartConfigs (req, res) {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    res.json(user.charts || []);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar configs do usuário." });
+  }
+},
+// POST: Salvar configuração dos gráficos do usuário
+async saveChartConfigs(req, res) {
+  try {
+    const { charts } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      { charts },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    res.json(user.charts);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao salvar configs do usuário." });
+  }
+}
 };
+
+
+
+
+
+// … você pode adicionar outras funções já existentes aqui (getUser, register, login etc)
 
 export default UserController;

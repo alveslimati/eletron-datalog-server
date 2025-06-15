@@ -46,6 +46,7 @@ mqttHandler(app); // Configuração de mensagens em tempo real
 
 // Configuração das rotas
 app.use('/auth', userRoutes); // Rota de autenticação de usuário
+app.use('/api/users', userRoutes);        
 app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
 
 // Configuração do Pool de Conexões com o PostgreSQL

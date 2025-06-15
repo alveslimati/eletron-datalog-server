@@ -10,5 +10,14 @@ const UserSchema = new mongoose.Schema({
   lastLogin: { type: Date, default: null },
 });
 
+// backend/models/User.js
+
+const UserChartSchema = new mongoose.Schema({
+  // ...outros campos
+  charts: {
+    type: [ { title: String } ], // ou outro formato que você deseje
+    default: []
+  }
+});
 const User = mongoose.model('User', UserSchema);
 export default User;
