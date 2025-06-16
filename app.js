@@ -91,8 +91,6 @@ app.post('/api/validarDispositivo', async (req, res) => {
 
   // --- Toda a lógica de DB dentro do try...catch ---
   try {
-    console.log(`Validando dispositivo: codigoHex=${codigoHex}, cnpj=${cnpj}`);
-
     // Consulta principal para verificar se o dispositivo existe E
     // se o CNPJ associado é NULL ou corresponde ao CNPJ informado.
     // Esta consulta substitui as verificações separadas.
@@ -102,11 +100,8 @@ app.post('/api/validarDispositivo', async (req, res) => {
       WHERE codigo_hex = $1 AND (cnpj IS NULL OR cnpj = $2)
     `;
     const selectValues = [codigoHex, cnpj];
-
-    console.log('Executando SELECT:', selectQuery, 'com valores:', selectValues);
     const result = await pool.query(selectQuery, selectValues);
-    console.log('Resultado do SELECT:', result.rows);
-
+    
     if (result.rows.length === 0) {
       // Se não encontrou nenhuma linha, significa que:
       // 1. O codigo_hex não existe.
@@ -126,12 +121,9 @@ app.post('/api/validarDispositivo', async (req, res) => {
           WHERE codigo_hex = $2
         `;
         const updateValues = [cnpj, codigoHex];
-        console.log('Executando UPDATE:', updateQuery, 'com valores:', updateValues);
         await pool.query(updateQuery, updateValues);
-        console.log('UPDATE executado com sucesso.');
     } else {
         // Se o CNPJ já estava preenchido e era o mesmo, não precisa atualizar.
-        console.log('Dispositivo já associado a este CNPJ. Nenhuma atualização necessária.');
     }
 
 

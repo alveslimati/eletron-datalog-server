@@ -53,30 +53,25 @@ const MessageController = {
 
     const user = await User.findById(userId).select('codigoHex');
     if (!user || !user.codigoHex) {
-      console.log("Usuário ou código hexadecimal não encontrado.");
       return res.status(404).json({ message: 'Usuário do dispositivo não encontrado.' });
     }
     const userCodigoHex = user.codigoHex;
-    console.log("Código hexadecimal do usuário:", userCodigoHex);
-
+    
     const cnpjResult = await pool.query(
       'SELECT cnpj FROM dispositivo_esp32 WHERE codigo_hex = $1',
       [userCodigoHex]
     );
     if (cnpjResult.rows.length === 0) {
-      console.log("CNPJ não encontrado para o código hexadecimal fornecido.");
       return res.status(404).json({ message: 'Dispositivo não encontrado ou não associado a um CNPJ.' });
     }
     const userCnpj = cnpjResult.rows[0].cnpj;
-    console.log("CNPJ do usuário:", userCnpj);
 
     const maquinasResult = await pool.query(
       'SELECT DISTINCT id_maquina FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL',
       [userCnpj]
     );
     const allowedMachineIds = maquinasResult.rows.map(row => row.id_maquina);
-    console.log("IDs de máquinas permitidas:", allowedMachineIds);
-
+    
     // Nova consulta para obter mensagens por data específica
     const messagesResult = await pool.query(
       'SELECT * FROM producao WHERE DATE(timestamp) = $1 AND maquina_id = ANY($2::int[])',

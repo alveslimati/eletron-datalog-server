@@ -17,8 +17,6 @@ const UserController = {
     // if (password !== confirmpassaword) { ... }
 
     try {
-      console.log("Iniciando a validação do dispositivo e CNPJ...");
-
       // --- Chamada para a API de validação ---
       // Axios lançará um erro se o status não for 2xx
       const validacaoResponse = await axios.post('https://eletron-datalog-server.onrender.com/api/validarDispositivo', {
@@ -29,9 +27,7 @@ const UserController = {
       // Se chegamos aqui, a chamada axios foi bem-sucedida (status 2xx).
       // A API validarDispositivo deve retornar 200 em caso de sucesso.
       // Se ela retornasse outro status 2xx (como 201), você poderia verificar aqui
-      // pois qualquer status não-2xx já teria sido capturado pelo `catch`.
-      console.log("Validação do dispositivo e CNPJ bem-sucedida.");
-      
+      // pois qualquer status não-2xx já teria sido capturado pelo `catch`.     
       // const { dispositivoId, maquinaId } = validacaoResponse.data;
 
 
