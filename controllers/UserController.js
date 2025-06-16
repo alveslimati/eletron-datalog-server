@@ -134,9 +134,10 @@ const UserController = {
   },
  
 // GET: Buscar configuração dos gráficos do usuário
-async getChartConfigs (req, res) {
+async getChartConfigs(req, res) {
   try {
-    const user = await User.findById(req.params.userId);
+    // Busca apenas o campo charts, se quiser otimizar:
+    const user = await User.findById(req.params.userId).select('charts');
     if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
     res.json(user.charts || []);
   } catch (err) {
@@ -149,11 +150,11 @@ async saveChartConfigs(req, res) {
     const { charts } = req.body;
     const user = await User.findByIdAndUpdate(
       req.params.userId,
-      { charts },
+      { charts },          // Salva diretamente no campo charts do usuário
       { new: true }
     );
     if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
-    res.json(user.charts);
+    res.json(user.charts); // Retorna os charts atualizados
   } catch (err) {
     res.status(500).json({ error: "Erro ao salvar configs do usuário." });
   }
