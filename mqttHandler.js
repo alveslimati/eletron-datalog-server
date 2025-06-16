@@ -16,7 +16,6 @@ const mqttHandler = (app) => {
   mqttClient.on('message', (topic, message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log(`Received message on ${topic}:`, data);
       messages.push(data); // Armazena a mensagem
     } catch (error) {
       console.error('Failed to parse MQTT message:', error);

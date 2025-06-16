@@ -43,14 +43,8 @@ const MessageController = {
   // Nova função para buscar mensagens por data
  async getMessagesByDate(req, res) {
   try {
-    console.log("Iniciando método getMessagesByDate.");
-
     const { date } = req.query;
-    console.log("Data recebida:", date);
-
     const userId = req.user.id;
-    console.log("ID do usuário:", userId);
-
     const user = await User.findById(userId).select('codigoHex');
     if (!user || !user.codigoHex) {
       return res.status(404).json({ message: 'Usuário do dispositivo não encontrado.' });
@@ -78,7 +72,6 @@ const MessageController = {
       [date, allowedMachineIds]
     );
 
-    console.log("Mensagens encontradas:", messagesResult.rows.length);
     res.json(messagesResult.rows);
 
   } catch (error) {
