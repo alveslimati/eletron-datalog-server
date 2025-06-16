@@ -54,7 +54,7 @@ const MessageController = {
     const user = await User.findById(userId).select('codigoHex');
     if (!user || !user.codigoHex) {
       console.log("Usuário ou código hexadecimal não encontrado.");
-      return res.status(404).json({ message: 'Usuário ou dispositivo não encontrado.' });
+      return res.status(404).json({ message: 'Usuário do dispositivo não encontrado.' });
     }
     const userCodigoHex = user.codigoHex;
     console.log("Código hexadecimal do usuário:", userCodigoHex);
