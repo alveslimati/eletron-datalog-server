@@ -7,8 +7,6 @@ const UserController = {
   async register(req, res) {
     const { cpfCnpj, codigoHex, email, password, nomeEmpresa } = req.body;
 
-    console.log("Dados recebidos:", req.body);
-
     // Validações iniciais (antes de chamar APIs externas ou DB)
     if (!cpfCnpj || !codigoHex || !email || !password) {
       return res.status(400).json({ message: 'Todos os campos são obrigatórios!' });
