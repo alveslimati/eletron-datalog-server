@@ -8,7 +8,7 @@ const MessageController = {
     try {
       const user = await User.findById(userId).select('codigoHex');
       if (!user || !user.codigoHex) {
-        return res.status(404).json({ message: 'Usuário ou dispositivo não encontrado.' });
+        return;
       }
       const userCodigoHex = user.codigoHex;
 
