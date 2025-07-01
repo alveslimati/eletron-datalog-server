@@ -47,48 +47,56 @@ async getMessagesByDate(req, res) {
     const userId = req.user.id;
 
     // Verifica se o usuário existe e obtém o códigoHex
-    const user = await User.findById(userId).select('codigoHex');
+    const user = await User.findById(userId).select("codigoHex");
     if (!user || !user.codigoHex) {
-      return res.status(404).json({ message: 'Usuário do dispositivo não encontrado.' });
+      return res.status(404).json({
+        message: "Usuário do dispositivo não encontrado.",
+      });
     }
     const userCodigoHex = user.codigoHex;
 
     // Busca o CNPJ associado ao dispositivo do usuário
     const cnpjResult = await pool.query(
-      'SELECT cnpj FROM dispositivo_esp32 WHERE codigo_hex = $1',
+      "SELECT cnpj FROM dispositivo_esp32 WHERE codigo_hex = $1",
       [userCodigoHex]
     );
     if (cnpjResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Dispositivo não encontrado ou não associado a um CNPJ.' });
+      return res
+        .status(404)
+        .json({ message: "Dispositivo não encontrado ou não associado a um CNPJ." });
     }
     const userCnpj = cnpjResult.rows[0].cnpj;
 
     // Busca os IDs das máquinas atribuídas ao dispositivo do usuário
     const maquinasResult = await pool.query(
-      'SELECT DISTINCT id_maquina FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL',
+      "SELECT DISTINCT id_maquina FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL",
       [userCnpj]
     );
-    const allowedMachineIds = maquinasResult.rows.map(row => row.id_maquina);
+    const allowedMachineIds = maquinasResult.rows.map((row) => row.id_maquina);
 
-    // Verifica se as datas são válidas
-    if (!startDate || !endDate) {
-      return res.status(400).json({ message: 'Os parâmetros startDate e endDate são obrigatórios.' });
-    }
+    // Se nenhum parâmetro de data for informado, usar o dia atual
+    const currentDate = new Date();
+    const defaultStartDate = `${currentDate.toISOString().split("T")[0]}T00:00:00`; // Começo do dia
+    const defaultEndDate = `${currentDate.toISOString().split("T")[0]}T23:59:59`; // Fim do dia
+
+    const effectiveStartDate = startDate || defaultStartDate; // Define a data início
+    const effectiveEndDate = endDate || defaultEndDate; // Define a data fim (pode ser opcional)
 
     // Consulta para obter mensagens dentro do intervalo de datas
     const messagesResult = await pool.query(
       `SELECT * 
        FROM producao 
-       WHERE DATE(timestamp) BETWEEN $1 AND $2 
+       WHERE timestamp BETWEEN $1 AND $2 
        AND maquina_id = ANY($3::int[])`,
-      [startDate, endDate, allowedMachineIds]
+      [effectiveStartDate, effectiveEndDate, allowedMachineIds]
     );
 
     res.json(messagesResult.rows); // Retorna as mensagens filtradas por data e máquina
-
   } catch (error) {
-    console.error('Erro ao buscar mensagens por intervalo de datas:', error);
-    res.status(500).json({ message: `Erro interno ao buscar dados no intervalo: ${error.message}` });
+    console.error("Erro ao buscar mensagens por intervalo de datas:", error);
+    res.status(500).json({
+      message: `Erro interno ao buscar dados no intervalo: ${error.message}`,
+    });
   }
 },
 };
