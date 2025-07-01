@@ -74,15 +74,27 @@ async getMessagesByDate(req, res) {
     );
     const allowedMachineIds = maquinasResult.rows.map((row) => row.id_maquina);
 
-    // Se nenhum parâmetro de data for informado, usar o dia atual
-    const currentDate = new Date();
-    const defaultStartDate = `${currentDate.toISOString().split("T")[0]}T00:00:00`; // Começo do dia
-    const defaultEndDate = `${currentDate.toISOString().split("T")[0]}T23:59:59`; // Fim do dia
+    // Funções para formatar horários
+    const formatStartOfDay = (date) =>
+      new Date(new Date(date).setHours(0, 0, 0, 0)).toISOString(); // 00:00:00
+    const formatEndOfDay = (date) =>
+      new Date(new Date(date).setHours(23, 59, 59, 999)).toISOString(); // 23:59:59
 
-    const effectiveStartDate = startDate || defaultStartDate; // Define a data início
-    const effectiveEndDate = endDate || defaultEndDate; // Define a data fim (pode ser opcional)
+    // Tratamento de datas (início e fim)
+    let effectiveStartDate = startDate ? formatStartOfDay(startDate) : null;
+    let effectiveEndDate = endDate ? formatEndOfDay(endDate) : null;
 
-    // Consulta para obter mensagens dentro do intervalo de datas, ordenadas pela data mais recente
+    // Define datas padrão se `startDate` ou `endDate` não forem fornecidas
+    if (!effectiveStartDate) {
+      const today = new Date();
+      effectiveStartDate = formatStartOfDay(today); // 00:00 de hoje
+    }
+    if (!effectiveEndDate) {
+      const today = new Date();
+      effectiveEndDate = formatEndOfDay(today); // 23:59 de hoje
+    }
+
+    // Consulta para obter mensagens dentro do intervalo de datas
     const messagesResult = await pool.query(
       `SELECT * 
        FROM producao 
@@ -92,7 +104,8 @@ async getMessagesByDate(req, res) {
       [effectiveStartDate, effectiveEndDate, allowedMachineIds]
     );
 
-    res.json(messagesResult.rows); // Retorna as mensagens filtradas por data e máquina
+    // Retorna as mensagens filtradas ao cliente
+    res.json(messagesResult.rows);
   } catch (error) {
     console.error("Erro ao buscar mensagens por intervalo de datas:", error);
     res.status(500).json({
