@@ -82,12 +82,13 @@ async getMessagesByDate(req, res) {
     const effectiveStartDate = startDate || defaultStartDate; // Define a data início
     const effectiveEndDate = endDate || defaultEndDate; // Define a data fim (pode ser opcional)
 
-    // Consulta para obter mensagens dentro do intervalo de datas
+    // Consulta para obter mensagens dentro do intervalo de datas, ordenadas pela data mais recente
     const messagesResult = await pool.query(
       `SELECT * 
        FROM producao 
        WHERE timestamp BETWEEN $1 AND $2 
-       AND maquina_id = ANY($3::int[])`,
+       AND maquina_id = ANY($3::int[])
+       ORDER BY timestamp DESC`, // Ordena as mensagens pela data mais recente
       [effectiveStartDate, effectiveEndDate, allowedMachineIds]
     );
 
