@@ -84,9 +84,9 @@ app.post('/api/validarDispositivo', async (req, res) => {
 
   // Ajuste a regex se o código hexadecimal tiver um tamanho diferente de 8
   // Pelo seu INSERT, parece ter 16 caracteres hexadecimais (8 bytes)
-  const codigoHexRegex = /^[0-9A-Fa-f]{16}$/; // Ajustado para 16 caracteres hexadecimais
+  const codigoHexRegex = /^[0-9A-Fa-f]{8}$/; // Ajustado para 16 caracteres hexadecimais
   if (!codigoHexRegex.test(codigoHex)) {
-    return res.status(400).json({ message: 'Código serial inválido! Deve conter 16 caracteres hexadecimais.' });
+    return res.status(400).json({ message: 'Código serial inválido! Deve conter 8 caracteres hexadecimais.' });
   }
 
   // --- Toda a lógica de DB dentro do try...catch ---
