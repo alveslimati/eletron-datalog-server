@@ -43,7 +43,7 @@ const MessageController = {
  // Nova função para buscar mensagens por intervalo de datas
 async getMessagesByDate(req, res) {
   try {
-    const { startDate, endDate } = req.query; // Obtém os parâmetros de data do query string
+    const { startDate, endDate } = req.query; // Obtém os parâmetros de data da query string
     const userId = req.user.id;
 
     // Verifica se o usuário existe e obtém o códigoHex
@@ -74,16 +74,16 @@ async getMessagesByDate(req, res) {
     );
     const allowedMachineIds = maquinasResult.rows.map((row) => row.id_maquina);
 
-    // Funções para formatar horários com base no horário atual (Date.now)
+    // Funções para tratar datas no UTC-3
     const formatStartOfDay = (date) => {
       const d = new Date(date);
-      d.setUTCHours(0, 0, 0, 0); // Define o horário para 00:00:00 UTC
+      d.setUTCHours(0 - 3, 0, 0, 0); // UTC-3 para o início do dia
       return d.toISOString();
     };
 
     const formatEndOfDay = (date) => {
       const d = new Date(date);
-      d.setUTCHours(23, 59, 59, 999); // Define o horário para 23:59:59.999 UTC
+      d.setUTCHours(23 - 3, 59, 59, 999); // UTC-3 para o final do dia
       return d.toISOString();
     };
 
@@ -91,27 +91,27 @@ async getMessagesByDate(req, res) {
     let effectiveStartDate = startDate ? formatStartOfDay(startDate) : null;
     let effectiveEndDate = endDate ? formatEndOfDay(endDate) : null;
 
-    // Datas padrão são definidas com base no agora (Date.now) se não forem fornecidas
+    // Define a data padrão se `startDate` ou `endDate` não forem fornecidos
     if (!effectiveStartDate) {
       const today = Date.now();
-      effectiveStartDate = formatStartOfDay(today); // 00:00 UTC de hoje
+      effectiveStartDate = formatStartOfDay(today); // 00:00 UTC-3 de hoje
     }
     if (!effectiveEndDate) {
       const today = Date.now();
-      effectiveEndDate = formatEndOfDay(today); // 23:59 UTC de hoje
+      effectiveEndDate = formatEndOfDay(today); // 23:59 UTC-3 de hoje
     }
 
-    // Consulta para obter mensagens dentro do intervalo de datas
+    // Consulta para buscar mensagens dentro do intervalo de datas ajustado
     const messagesResult = await pool.query(
       `SELECT * 
        FROM producao 
        WHERE timestamp BETWEEN $1 AND $2 
        AND maquina_id = ANY($3::int[])
-       ORDER BY timestamp DESC`, // Ordena as mensagens pela data mais recente
+       ORDER BY timestamp DESC`, // Ordena pela data mais recente
       [effectiveStartDate, effectiveEndDate, allowedMachineIds]
     );
 
-    // Retorna as mensagens filtradas ao cliente
+    // Retorna as mensagens filtradas para o cliente
     res.json(messagesResult.rows);
   } catch (error) {
     console.error("Erro ao buscar mensagens por intervalo de datas:", error);
