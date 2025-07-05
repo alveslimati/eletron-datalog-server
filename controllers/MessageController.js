@@ -74,24 +74,31 @@ async getMessagesByDate(req, res) {
     );
     const allowedMachineIds = maquinasResult.rows.map((row) => row.id_maquina);
 
-    // Funções para formatar horários
-    const formatStartOfDay = (date) =>
-      new Date(new Date(date).setHours(0, 0, 0, 0)).toISOString(); // 00:00:00
-    const formatEndOfDay = (date) =>
-      new Date(new Date(date).setHours(23, 59, 59, 999)).toISOString(); // 23:59:59
+    // Funções para formatar horários com base no horário atual (Date.now)
+    const formatStartOfDay = (date) => {
+      const d = new Date(date);
+      d.setUTCHours(0, 0, 0, 0); // Define o horário para 00:00:00 UTC
+      return d.toISOString();
+    };
+
+    const formatEndOfDay = (date) => {
+      const d = new Date(date);
+      d.setUTCHours(23, 59, 59, 999); // Define o horário para 23:59:59.999 UTC
+      return d.toISOString();
+    };
 
     // Tratamento de datas (início e fim)
     let effectiveStartDate = startDate ? formatStartOfDay(startDate) : null;
     let effectiveEndDate = endDate ? formatEndOfDay(endDate) : null;
 
-    // Define datas padrão se `startDate` ou `endDate` não forem fornecidas
+    // Datas padrão são definidas com base no agora (Date.now) se não forem fornecidas
     if (!effectiveStartDate) {
-      const today = new Date();
-      effectiveStartDate = formatStartOfDay(today); // 00:00 de hoje
+      const today = Date.now();
+      effectiveStartDate = formatStartOfDay(today); // 00:00 UTC de hoje
     }
     if (!effectiveEndDate) {
-      const today = new Date();
-      effectiveEndDate = formatEndOfDay(today); // 23:59 de hoje
+      const today = Date.now();
+      effectiveEndDate = formatEndOfDay(today); // 23:59 UTC de hoje
     }
 
     // Consulta para obter mensagens dentro do intervalo de datas
@@ -112,7 +119,7 @@ async getMessagesByDate(req, res) {
       message: `Erro interno ao buscar dados no intervalo: ${error.message}`,
     });
   }
-},
+}
 };
 
 export default MessageController;
