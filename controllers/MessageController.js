@@ -107,7 +107,7 @@ async getMessagesByDate(req, res) {
        FROM producao 
        WHERE timestamp BETWEEN $1 AND $2 
        AND maquina_id = ANY($3::int[])
-       ORDER BY timestamp DESC`, // Ordena pela data mais recente
+       ORDER BY timestamp ASC`, // Ordena pela data mais recente
       [effectiveStartDate, effectiveEndDate, allowedMachineIds]
     );
 
