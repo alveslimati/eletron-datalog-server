@@ -44,10 +44,11 @@ connectDB();
 // Configura MQTT (broker)
 mqttHandler(app); // Configuração de mensagens em tempo real
 
+
 // Configuração das rotas
-app.use('/auth', userRoutes); // Rota de autenticação de usuário
-app.use('/api/users', userRoutes);        
-app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
+app.use('/auth', userRoutes); // Rota de autenticação de usuário (para /register, /login)
+app.use('/api/users', userRoutes); // Rota de operações de usuário e charts (incluindo a nova /filter-metadata)
+app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT (como está atualmente)
 
 // Configuração do Pool de Conexões com o PostgreSQL
 export const pool = new Pool({
