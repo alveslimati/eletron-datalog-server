@@ -15,6 +15,7 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:4173',
   'https://main.d1o387bagj6v4q.amplifyapp.com'
 ];
 
@@ -45,11 +46,18 @@ connectDB();
 // Configura MQTT (broker)
 mqttHandler(app); // Configuração de mensagens em tempo real
 
+
 // Configuração das rotas
+<<<<<<< HEAD
 app.use('/auth', userRoutes); // Rota de autenticação de usuário
 app.use('/api/users', userRoutes);        
 app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
 app.use('/api/mensagens2', message2Routes); // Rota de dados MQTT
+=======
+app.use('/auth', userRoutes); // Rota de autenticação de usuário (para /register, /login)
+app.use('/api/users', userRoutes); // Rota de operações de usuário e charts (incluindo a nova /filter-metadata)
+app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT (como está atualmente)
+>>>>>>> c315d8d212f7e753e3594712347d80fb6c5b37dd
 
 // Configuração do Pool de Conexões com o PostgreSQL
 export const pool = new Pool({
