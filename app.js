@@ -4,6 +4,7 @@ import cors from 'cors';
 import connectDB from './config/db.js';
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
+import message2Routes from './routes/message2Routes.js';
 import mqttHandler from './mqttHandler.js';
 import axios from 'axios';
 import { Pool } from 'pg'; 
@@ -48,6 +49,7 @@ mqttHandler(app); // Configuração de mensagens em tempo real
 app.use('/auth', userRoutes); // Rota de autenticação de usuário
 app.use('/api/users', userRoutes);        
 app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
+app.use('/api/mensagens2', message2Routes); // Rota de dados MQTT
 
 // Configuração do Pool de Conexões com o PostgreSQL
 export const pool = new Pool({
