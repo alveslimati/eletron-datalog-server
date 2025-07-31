@@ -1,16 +1,16 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import connectDB from './config/db.js';
+// import connectDB from './config/db.js'; // REMOVER: Era do Mongoose, se não usar, remova.
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import messageRealTimeRoutes from './routes/messageRealTimeRoutes.js';
 import mqttHandler from './mqttHandler.js';
 import axios from 'axios';
-import { Pool } from 'pg'; 
+// --- IMPORTAÇÃO CORRIGIDA ---
+import pool from './config/mysqlDB.js'; // Importa o pool de conexões do MySQL
 
 dotenv.config();
-
 const app = express();
 
 const allowedOrigins = [
@@ -40,41 +40,22 @@ app.use(cors(corsOptions));
 // Middleware para garantir que a rota OPTIONS funcione (preflight)
 app.use(express.json());   // Middleware para JSON
 
-// Conecta ao banco de dados
-connectDB();
+// connectDB(); // REMOVER: Era do Mongoose
 
-// Configura MQTT (broker)
-mqttHandler(app); // Configuração de mensagens em tempo real
+mqttHandler(app);
 
-// Configuração das rotas
-app.use('/auth', userRoutes); // Rota de autenticação de usuário
-app.use('/api/users', userRoutes);        
-app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
-app.use('/api/mensagensRealTime', messageRealTimeRoutes); // Rota de dados MQTT
+app.use('/auth', userRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/mensagens', messageRoutes);
+app.use('/api/mensagensRealTime', messageRealTimeRoutes);
 
-// Configuração do Pool de Conexões com o PostgreSQL
-export const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-  // --- Adicione esta configuração para SSL ---
-  ssl: {
-    rejectUnauthorized: false // Usando false apenas para testes ou se não tiver o certificado CA
-    // Para produção, você devemos configurar o certificado CA:
-    // ca: fs.readFileSync('caminho/para/rds-ca-cert.pem').toString(),
-  }
-  // ------------------------------------------
-});
+// --- REMOVER A CONFIGURAÇÃO ANTIGA DO POOL DO POSTGRESQL ---
+// export const pool = new Pool({...}); // REMOVER TODO ESTE BLOCO
 
-// Rota para validar o dispositivo e o CNPJ
+// --- ROTA DE VALIDAÇÃO AJUSTADA PARA MYSQL ---
 app.post('/api/validarDispositivo', async (req, res) => {
   const { codigoHex, cnpj } = req.body;
-
+ 
   // Validações de formato (mantidas, pois são rápidas e não dependem do DB)
   if (!codigoHex || !cnpj) {
     return res.status(400).json({ message: 'Código Serial e CNPJ são obrigatórios!' });
@@ -92,55 +73,43 @@ app.post('/api/validarDispositivo', async (req, res) => {
     return res.status(400).json({ message: 'Código serial inválido! Deve conter 8 caracteres hexadecimais.' });
   }
 
-  // --- Toda a lógica de DB dentro do try...catch ---
   try {
-    // Consulta principal para verificar se o dispositivo existe E
-    // se o CNPJ associado é NULL ou corresponde ao CNPJ informado.
-    // Esta consulta substitui as verificações separadas.
+    // --- SINTAXE SQL AJUSTADA ---
+    // MySQL usa '?' como placeholder em vez de '$1', '$2', etc.
     const selectQuery = `
-      SELECT id, id_maquina, cnpj
-      FROM dispositivo_esp32
-      WHERE codigo_hex = $1 AND (cnpj IS NULL OR cnpj = $2)
+      SELECT id, id_maquina, cnpj 
+      FROM dispositivo_esp32 
+      WHERE codigo_hex = ? AND (cnpj IS NULL OR cnpj = ?)
     `;
     const selectValues = [codigoHex, cnpj];
-    const result = await pool.query(selectQuery, selectValues);
     
-    if (result.rows.length === 0) {
-      // Se não encontrou nenhuma linha, significa que:
-      // 1. O codigo_hex não existe.
-      // 2. O codigo_hex existe, mas já está associado a um CNPJ *diferente* do informado.
-      // Em ambos os casos, o dispositivo não pode ser validado com este CNPJ.
+    // A forma de executar a query muda um pouco com 'mysql2'
+    const [rows] = await pool.query(selectQuery, selectValues);
+
+    if (rows.length === 0) {
       return res.status(404).json({ message: 'Serial do dispositivo não encontrado ou já associado a outro CNPJ. Consulte o administrador!' });
     }
 
-    const dispositivo = result.rows[0];
+    const dispositivo = rows[0];
 
-    // Se chegou aqui, o dispositivo existe e o CNPJ é NULL ou corresponde.
-    // Agora, atualizamos o dispositivo se o CNPJ ainda for NULL.
     if (dispositivo.cnpj === null) {
-        const updateQuery = `
-          UPDATE dispositivo_esp32
-          SET cnpj = $1, data_registro = NOW()
-          WHERE codigo_hex = $2
-        `;
-        const updateValues = [cnpj, codigoHex];
-        await pool.query(updateQuery, updateValues);
-    } else {
-        // Se o CNPJ já estava preenchido e era o mesmo, não precisa atualizar.
+      // NOW() funciona tanto em PostgreSQL quanto em MySQL, então não precisa mudar.
+      const updateQuery = `
+        UPDATE dispositivo_esp32
+        SET cnpj = ?, data_registro = NOW()
+        WHERE codigo_hex = ?
+      `;
+      const updateValues = [cnpj, codigoHex];
+      await pool.query(updateQuery, updateValues);
     }
-
-
-    // Retorna sucesso com os IDs necessários para o registro do usuário
+    
     res.status(200).json({
       message: 'Dispositivo validado com sucesso!',
       dispositivoId: dispositivo.id,
-      maquinaId: dispositivo.id_maquina // Pode ser NULL se não estiver associado a uma máquina ainda
+      maquinaId: dispositivo.id_maquina
     });
-
   } catch (error) {
-    // Captura qualquer erro que ocorra dentro do try
-    console.error('Erro detalhado ao validar dispositivo:', error); // Log mais detalhado no servidor
-    // Retorna o erro detalhado para o cliente (Postman)
+    console.error('Erro detalhado ao validar dispositivo:', error);
     res.status(500).json({ message: 'Erro interno ao validar dispositivo: ' + error.message });
   }
 });
