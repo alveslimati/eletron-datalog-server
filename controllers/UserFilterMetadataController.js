@@ -1,32 +1,16 @@
 import { pool } from '../app.js';
 import User from '../models/User.js';
-import checkToken from '../middleware/auth.js'; // Importa o middleware
+// Não precisamos mais importar 'checkToken' ou 'jwt' aqui.
 
 const UserFilterMetadataController = {
+  // A função agora é muito mais simples.
   async getUserMachinesMetadata(req, res) {
-    
-    // --- INÍCIO DA LÓGICA DO TOKEN INTEGRADA ---
-    // Simula o que o middleware faria.
-    // É melhor que a função checkToken retorne o usuário ou lance um erro.
-    // Exemplo de como poderia ser:
-    try {
-        const authHeader = req.headers['authorization'];
-        const token = authHeader && authHeader.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ message: 'Acesso negado.' });
-        }
-        const decoded = jwt.verify(token, process.env.SECRET);
-        req.user = { id: decoded.id }; // Adiciona o usuário ao request
-    } catch (error) {
-        return res.status(400).json({ message: 'Token inválido.' });
-    }
-    // --- FIM DA LÓGICA DO TOKEN ---
-
+    // O middleware 'checkToken' já validou e adicionou 'req.user'.
     const userId = req.user.id; 
 
+    // A verificação de 'userId' ainda é uma boa prática.
     if (!userId) {
-      // Esta verificação se torna redundante se a lógica acima já tratar isso.
-      return res.status(401).json({ message: 'Usuário não autenticado.' });
+      return res.status(401).json({ message: 'Usuário não autenticado. ID não encontrado na requisição.' });
     }
 
     try {
@@ -47,7 +31,7 @@ const UserFilterMetadataController = {
       }
       const userCnpj = cnpjResult.rows[0].cnpj;
 
-      // 3. Obter todos os dispositivos
+      // 3. Obter todos os dispositivos associados
       const devicesResult = await pool.query(
         'SELECT DISTINCT id_maquina, codigo_hex FROM dispositivo_esp32 WHERE cnpj = $1 AND id_maquina IS NOT NULL',
         [userCnpj]
