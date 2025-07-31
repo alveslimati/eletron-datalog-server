@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 // import connectDB from './config/db.js'; // REMOVER: Era do Mongoose, se não usar, remova.
+import authRoutes from './routes/authRoutes.js'; // Importa o novo router
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import messageRealTimeRoutes from './routes/messageRealTimeRoutes.js';
@@ -44,8 +45,8 @@ app.use(express.json());   // Middleware para JSON
 
 mqttHandler(app);
 
-app.use('/auth', userRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes); ;
 app.use('/api/mensagens', messageRoutes);
 app.use('/api/mensagensRealTime', messageRealTimeRoutes);
 
