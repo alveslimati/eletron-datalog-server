@@ -50,7 +50,7 @@ mqttHandler(app); // Configuração de mensagens em tempo real
 app.use('/auth', userRoutes); // Rota de autenticação de usuário
 app.use('/api/users', userRoutes);        
 app.use('/api/mensagens', messageRoutes); // Rota de dados MQTT
-app.use('/api/mensagensRealTime', mensagensRealTime); // Rota de dados MQTT
+app.use('/api/mensagensRealTime', messageRealTimeRoutes); // Rota de dados MQTT
 
 // Configuração do Pool de Conexões com o PostgreSQL
 export const pool = new Pool({
