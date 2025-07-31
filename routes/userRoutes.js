@@ -15,6 +15,7 @@ router.post('/login', userController.login);
 // NOVA ROTA: Obter metadados de filtro do usuário (específica, deve vir antes de /:id)
 router.get('/filter-metadata', checkToken, UserFilterMetadataController.getUserMachinesMetadata);
 
+
 // Rotas para configurações de gráfico (também são mais específicas que /:id para o userId)
 router.get('/:userId/chart-configs', checkToken, userController.getChartConfigs);
 router.post('/:userId/chart-configs', checkToken, userController.saveChartConfigs);
