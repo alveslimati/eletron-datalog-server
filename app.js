@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-// import connectDB from './config/db.js'; // REMOVER: Era do Mongoose, se não usar, remova.
+import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js'; // Importa o novo router
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
@@ -41,7 +41,8 @@ app.use(cors(corsOptions));
 // Middleware para garantir que a rota OPTIONS funcione (preflight)
 app.use(express.json());   // Middleware para JSON
 
-// connectDB(); // REMOVER: Era do Mongoose
+
+connectDB(); // REMOVER: Era do Mongoose
 
 mqttHandler(app);
 
