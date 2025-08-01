@@ -1,11 +1,11 @@
 // src/routes/authRoutes.js
 import express from 'express';
-// Supondo que as funções de login/registro estão em UserController
-import { loginUser, registerUser } from '../controllers/UserController.js'; 
+import UserController from '../controllers/UserController.js'; 
 
 const router = express.Router();
 
-router.post('/login', loginUser);
-router.post('/register', registerUser);
+// Correção aqui: use os nomes exatos das funções do seu controller
+router.post('/login', UserController.login);
+router.post('/register', UserController.register);
 
 export default router;
