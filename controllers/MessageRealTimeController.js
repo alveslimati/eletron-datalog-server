@@ -16,7 +16,7 @@ const MessageRealTimeController = {
       const allowedSet = new Set(allowedCodigoHexes);
 
       const filteredMessages = allMessages.filter(msg => 
-        msg.numeroSerial && allowedSet.has(String(msg.numeroSerial))
+        msg.numero_serial && allowedSet.has(String(msg.numero_serial))
       );
 
       res.json(filteredMessages);
