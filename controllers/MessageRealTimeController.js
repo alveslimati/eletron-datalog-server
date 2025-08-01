@@ -3,7 +3,6 @@ const MessageRealTimeController = {
     try {
       const { allowedCodigoHexes } = req.body;
 
-     
       if (!Array.isArray(allowedCodigoHexes)) {
         return res.status(400).json({ message: 'A propriedade "allowedCodigoHexes" deve ser um array.' });
       }
@@ -15,8 +14,9 @@ const MessageRealTimeController = {
       const allMessages = req.app.locals.messages || [];
 
       const allowedSet = new Set(allowedCodigoHexes);
+
       const filteredMessages = allMessages.filter(msg => 
-        msg.numeroSerial && allowedSet.has(msg.numeroSerial)
+        msg.numeroSerial && allowedSet.has(String(msg.numeroSerial))
       );
 
       res.json(filteredMessages);
