@@ -1,29 +1,24 @@
 const MessageRealTimeController = {
   async getRealTimeMessages(req, res) {
     try {
-      // 1. Recebe a lista de códigos do corpo da requisição
-      const { allowedSerialNumbers } = req.body;
+      const { allowedCodigoHexes } = req.body;
 
-      // Validação básica
-      if (!Array.isArray(allowedSerialNumbers)) {
-        return res.status(400).json({ message: 'A propriedade "allowedSerialNumbers" deve ser um array.' });
+     
+      if (!Array.isArray(allowedCodigoHexes)) {
+        return res.status(400).json({ message: 'A propriedade "allowedCodigoHexes" deve ser um array.' });
       }
       
-      // Se a lista estiver vazia, não há o que filtrar.
-      if (allowedSerialNumbers.length === 0) {
+      if (allowedCodigoHexes.length === 0) {
         return res.json([]);
       }
 
-      // 2. Pega todas as mensagens do cache do MQTT
       const allMessages = req.app.locals.messages || [];
 
-      // 3. Filtra as mensagens com base na lista recebida
-      const allowedSet = new Set(allowedSerialNumbers);
+      const allowedSet = new Set(allowedCodigoHexes);
       const filteredMessages = allMessages.filter(msg => 
-        allowedSet.has(msg.numeroSerial)
+        msg.numeroSerial && allowedSet.has(msg.numeroSerial)
       );
 
-      // 4. Retorna os dados filtrados
       res.json(filteredMessages);
 
     } catch (error) {
