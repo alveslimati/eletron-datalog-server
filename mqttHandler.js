@@ -1,19 +1,21 @@
 import mqtt from 'mqtt';
 import amqplib from 'amqplib/callback_api.js';
 
-const rabbitMessages = []; // Armazena mensagens lidas do RabbitMQ
-const mqttMessages = [];   // Armazena mensagens lidas do HiveMQ
+const rabbitMessages = []; // Para armazenar mensagens do RabbitMQ
+const mqttMessages = [];   // Para armazenar mensagens do HiveMQ
 
 const mqttHandler = (app) => {
-  console.log("Iniciando serviços RabbitMQ e HiveMQ...");
+  console.log("Inicializando conexão com RabbitMQ e HiveMQ...");
 
   const rabbitConfig = {
     host: 'shark.rmq.cloudamqp.com',
     port: 5672,
     username: 'xbyhpdes',
     password: 'dcP6ky94M8NRuEwhrTJDK0AhgtYG5tsd',
-    queueName: 'eletron.datalog.queue',
     virtualHost: 'xbyhpdes',
+    queueName: 'eletron.datalog.queue',
+    deadLetterExchange: 'dead_letter_exchange',
+    deadLetterQueue: 'eletron.datalog.queue.dlq',
   };
 
   // Conexão com RabbitMQ
@@ -22,49 +24,65 @@ const mqttHandler = (app) => {
 
     amqplib.connect(rabbitURL, (err, connection) => {
       if (err) {
-        console.error("Erro ao conectar com RabbitMQ:", err.message);
-        console.log("Tentando usar HiveMQ como fallback...");
+        console.error("Erro ao conectar-se ao RabbitMQ:", err.message);
+        console.log("Utilizando HiveMQ como fallback...");
         mqttConnect();
         return;
       }
 
-      console.log("Conectado ao RabbitMQ!");
+      console.log("Conexão estabelecida com o RabbitMQ!");
 
       connection.createChannel((err, channel) => {
         if (err) {
-          console.error("Erro ao criar canal RabbitMQ:", err.message);
+          console.error("Erro ao criar canal do RabbitMQ:", err.message);
           return;
         }
 
         const queue = rabbitConfig.queueName;
 
-        // Assegurar que a fila existe (caso não tenha sido criada anteriormente)
-        channel.assertQueue(queue, { durable: true });
-
-        console.log(`Consumindo mensagens da fila RabbitMQ: '${queue}'`);
-
-        // Processar cada mensagem da fila
-        channel.consume(
+        // Declara a fila utilizando os mesmos argumentos já configurados no RabbitMQ
+        channel.assertQueue(
           queue,
-          (message) => {
-            if (message !== null) {
-              try {
-                const data = JSON.parse(message.content.toString());
-                console.log("Mensagem recebida do RabbitMQ:", data);
-                rabbitMessages.push(data); // Armazena a mensagem
-
-                // Não confirma a exclusão da mensagem; mantém persistência
-                // Para confirmação manual, utilize: channel.ack(message);
-              } catch (err) {
-                console.error(
-                  "Erro ao processar mensagem do RabbitMQ:",
-                  err.message
-                );
-              }
-            }
-          },
           {
-            noAck: true, // Não remove mensagens da fila; apenas lê
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: {
+              "x-dead-letter-exchange": rabbitConfig.deadLetterExchange,
+              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue, // Respeitando as configurações existentes
+            },
+          },
+          (err2) => {
+            if (err2) {
+              console.error(
+                `Erro ao declarar fila '${queue}' no RabbitMQ:`,
+                err2.message
+              );
+              return;
+            }
+            console.log(`Fila '${queue}' conectada com sucesso!`);
+
+            // Consumindo mensagens da fila
+            channel.consume(
+              queue,
+              (message) => {
+                if (message !== null) {
+                  try {
+                    const data = JSON.parse(message.content.toString());
+                    console.log("Mensagem recebida do RabbitMQ:", data);
+                    rabbitMessages.push(data); // Armazena a mensagem
+                  } catch (err) {
+                    console.error(
+                      "Erro ao processar mensagem do RabbitMQ:",
+                      err.message
+                    );
+                  }
+                }
+              },
+              {
+                noAck: true, // Não remove mensagens da fila
+              }
+            );
           }
         );
       });
@@ -82,27 +100,30 @@ const mqttHandler = (app) => {
     );
 
     mqttClient.on('connect', () => {
-      console.log('Conectado ao MQTT (HiveMQ)');
+      console.log("Conectado ao MQTT (HiveMQ)");
       mqttClient.subscribe('maquina/dados');
     });
 
     mqttClient.on('message', (topic, message) => {
       try {
         const data = JSON.parse(message.toString());
-        console.log(`Mensagem recebida no tópico ${topic}:`, data);
+        console.log(`Mensagem recebida do MQTT no tópico ${topic}:`, data);
         mqttMessages.push(data);
       } catch (err) {
-        console.error('Erro ao processar mensagem do MQTT (HiveMQ):', err.message);
+        console.error(
+          "Erro ao processar mensagem do MQTT (HiveMQ):",
+          err.message
+        );
       }
     });
   };
 
-  // Inicializa a conexão com RabbitMQ, com o HiveMQ como fallback
+  // Inicializa a conexão com RabbitMQ, com fallback para HiveMQ
   rabbitConnect();
 
   // Disponibiliza mensagens no servidor express
-  app.locals.rabbitMessages = rabbitMessages; // Mensagens RabbitMQ
-  app.locals.mqttMessages = mqttMessages;     // Mensagens HiveMQ
+  app.locals.rabbitMessages = rabbitMessages; // Mensagens do RabbitMQ
+  app.locals.mqttMessages = mqttMessages;     // Mensagens do HiveMQ
 };
 
 export default mqttHandler;
