@@ -6,21 +6,25 @@ const MessageRealTimeController = {
       if (!Array.isArray(allowedCodigoHexes)) {
         return res.status(400).json({ message: 'A propriedade "allowedCodigoHexes" deve ser um array.' });
       }
-      
+
       if (allowedCodigoHexes.length === 0) {
         return res.json([]);
       }
 
-      const allMessages = req.app.locals.messages || [];
+      const rabbitMessages = req.app.locals.rabbitMessages || [];
+      const mqttMessages = req.app.locals.mqttMessages || [];
+
+      // Prioriza RabbitMQ como fonte de mensagens
+      const allMessages = rabbitMessages.length > 0 ? rabbitMessages : mqttMessages;
 
       const allowedSet = new Set(allowedCodigoHexes);
 
+      // Filtra as mensagens pelo número serial permitido
       const filteredMessages = allMessages.filter(msg => 
         msg.numero_serial && allowedSet.has(String(msg.numero_serial))
       );
 
       res.json(filteredMessages);
-
     } catch (error) {
       console.error('Erro ao buscar mensagens em tempo real:', error);
       res.status(500).json({ message: 'Erro interno ao processar a solicitação.' });
