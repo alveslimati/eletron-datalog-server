@@ -1,5 +1,5 @@
 import mqtt from 'mqtt';
-import amqplib from 'amqplib/callback_api';
+import amqplib from 'amqplib/callback_api.js';
 
 const rabbitMessages = []; // Armazena mensagens lidas do RabbitMQ
 const mqttMessages = [];   // Armazena mensagens lidas do HiveMQ
