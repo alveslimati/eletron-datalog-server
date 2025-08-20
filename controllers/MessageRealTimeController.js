@@ -34,11 +34,19 @@ const MessageRealTimeController = {
         `[DEBUG] Intervalo UTC-3 - Início do dia: ${startOfDay.toISOString()}, Fim do dia: ${endOfDay.toISOString()}`
       );
 
+      // Função para normalizar o formato do timestamp
+      const normalizeTimestamp = (timestamp) => {
+        // Substitui a barra (/) por um traço (-)
+        const normalized = timestamp.replace(/\//g, '-');
+        return new Date(normalized); // Converte para um objeto Date
+      };
+
       // Filtra mensagens no intervalo do dia atual em UTC-3 e com `allowedCodigoHexes`
       const filteredMessages = allMessages.filter((msg) => {
-        // Verifica se `msg.timestamp` é válido
-        const messageTimestamp = new Date(msg.timestamp);
+        // Verifica se `msg.timestamp` é válido e normaliza o formato
+        const messageTimestamp = normalizeTimestamp(msg.timestamp);
         if (isNaN(messageTimestamp.getTime())) {
+          console.log(`[DEBUG] Ignorando mensagem com timestamp inválido: ${msg.timestamp}`);
           return false; // Ignora mensagens com timestamp inválido
         }
 
@@ -50,6 +58,7 @@ const MessageRealTimeController = {
         return isInDayRange && msg.numero_serial && allowedSet.has(String(msg.numero_serial));
       });
 
+      console.log(`[DEBUG] Total de mensagens filtradas: ${filteredMessages.length}`);
       res.json(filteredMessages); // Retorna as mensagens filtradas
     } catch (error) {
       console.error('Erro ao buscar mensagens em tempo real:', error);
