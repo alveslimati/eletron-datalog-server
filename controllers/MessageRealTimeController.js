@@ -55,7 +55,7 @@ const MessageRealTimeController = {
           messageTimestamp >= startOfDay && messageTimestamp <= endOfDay;
 
         // Verifica o `numero_serial` e se tem permissão (allowedCodigoHexes)
-        return isInDayRange && msg.numero_serial && allowedSet.has(String(msg.numero_serial));
+         msg.numero_serial && allowedSet.has(String(msg.numero_serial));
       });
 
       console.log(`[DEBUG] Total de mensagens filtradas: ${filteredMessages.length}`);
