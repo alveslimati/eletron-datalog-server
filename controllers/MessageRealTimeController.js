@@ -36,14 +36,22 @@ const MessageRealTimeController = {
 
       // Função para normalizar o formato do timestamp
       const normalizeTimestamp = (timestamp) => {
-        // Substitui a barra (/) por um traço (-)
-        const normalized = timestamp.replace(/\//g, '-');
-        return new Date(normalized); // Converte para um objeto Date
+        try {
+          // Substitui a barra (/) por "T" para criar um formato ISO
+          const normalized = timestamp.replace('/', 'T');
+          const normalizedDate = new Date(normalized); 
+
+          console.log(`[DEBUG] Timestamp Normalizado: ${normalized}, Resultado Date: ${normalizedDate.toISOString()}`);
+          return normalizedDate;
+        } catch (error) {
+          console.error(`[ERROR] Falha ao normalizar o timestamp: ${timestamp}`, error);
+          return new Date('Invalid Date');
+        }
       };
 
       // Filtra mensagens no intervalo do dia atual em UTC-3 e com `allowedCodigoHexes`
       const filteredMessages = allMessages.filter((msg) => {
-        // Verifica se `msg.timestamp` é válido e normaliza o formato
+        // Normaliza o timestamp e verifica se é válido
         const messageTimestamp = normalizeTimestamp(msg.timestamp);
         if (isNaN(messageTimestamp.getTime())) {
           console.log(`[DEBUG] Ignorando mensagem com timestamp inválido: ${msg.timestamp}`);
@@ -54,8 +62,16 @@ const MessageRealTimeController = {
         const isInDayRange =
           messageTimestamp >= startOfDay && messageTimestamp <= endOfDay;
 
+        // Logs detalhados
+        console.log(
+          `[DEBUG] Verificando mensagem: numero_serial=${msg.numero_serial}, timestamp=${msg.timestamp}`
+        );
+        console.log(
+          `[DEBUG] Dentro do intervalo UTC-3? ${isInDayRange ? 'Sim' : 'Não'}`
+        );
+
         // Verifica o `numero_serial` e se tem permissão (allowedCodigoHexes)
-         msg.numero_serial && allowedSet.has(String(msg.numero_serial));
+        return isInDayRange && msg.numero_serial && allowedSet.has(String(msg.numero_serial));
       });
 
       console.log(`[DEBUG] Total de mensagens filtradas: ${filteredMessages.length}`);
