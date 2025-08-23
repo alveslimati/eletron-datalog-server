@@ -49,7 +49,7 @@ const mqttHandler = (app) => {
             autoDelete: false,
             arguments: {
               "x-dead-letter-exchange": rabbitConfig.deadLetterExchange,
-              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue, // Res
+              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue, // Respeitar configurações do dead-letter
             },
           },
           (err2) => {
@@ -61,26 +61,34 @@ const mqttHandler = (app) => {
 
             // Função para realizar leitura pontual das mensagens
             const readMessages = () => {
-              let message = channel.get(queue, { noAck: true });
-              while (message) {
-                try {
-                   if (message !== null) {
-                 const data = JSON.parse(message.content.toString());
-                  console.log("Mensagem lida do RabbitMQ:", data);
+              let message;
+              do {
+                // Lê uma mensagem da fila
+                message = channel.get(queue, { noAck: true });
 
-                  // Armazena a mensagem em memória (opcional)
-                  rabbitMessages.push(data);
-                   }
-                } catch (err) {
-                  console.error("Erro ao processar mensagem RabbitMQ:", err.message);
+                if (message) {
+                  try {
+                    // Valida se o conteúdo da mensagem é válido
+                    if (!message.content || !(message.content instanceof Buffer)) {
+                      console.warn("Mensagem sem conteúdo válido recebida. Ignorando...");
+                      continue; // Ignora a mensagem inválida e prossegue para a próxima
+                    }
+
+                    // Converte a mensagem para JSON
+                    const data = JSON.parse(message.content.toString());
+                    console.log("Mensagem lida do RabbitMQ:", data);
+
+                    // Armazena a mensagem temporariamente em memória
+                    rabbitMessages.push(data);
+                  } catch (err) {
+                    console.error("Erro ao processar mensagem RabbitMQ:", err.message);
+                  }
                 }
 
-                // Tenta buscar a próxima mensagem
-                message = channel.get(queue, { noAck: true });
-              }
+              } while (message); // Continua enquanto houver mensagens
             };
 
-            // Chama a função de leitura pontual (opcionalmente com base em triggers externos)
+            // Chama a função de leitura pontual
             readMessages();
           }
         );
