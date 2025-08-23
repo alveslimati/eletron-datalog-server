@@ -12,17 +12,17 @@ const MessageRealTimeController = {
       }
 
       const rabbitMessages = req.app.locals.rabbitMessages || [];
-      const mqttMessages = req.app.locals.mqttMessages || [];
+      
 
       // Prioriza RabbitMQ como fonte de mensagens
-      const allMessages = rabbitMessages.length > 0 ? rabbitMessages : mqttMessages;
+      const allMessages = rabbitMessages;
 
       const allowedSet = new Set(allowedCodigoHexes);
 
       // Filtra as mensagens pelo número serial permitido
-      const filteredMessages = allMessages.filter(msg => 
-        msg.numero_serial && allowedSet.has(String(msg.numero_serial))
-      );
+      const filteredMessages = allMessages
+      .filter(msg => msg.numero_serial && allowedSet.has(String(msg.numero_serial)))
+      .sort((msgA, msgB) => new Date(msgB.timestamp) - new Date(msgA.timestamp)); // Ordena do mais recente para o mais antigo
 
       res.json(filteredMessages);
     } catch (error) {
