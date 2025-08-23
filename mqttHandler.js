@@ -44,12 +44,12 @@ const mqttHandler = (app) => {
         channel.assertQueue(
           queue,
           {
-            durable: true, // Garante que as mensagens sobrevivam a reinicializações do RabbitMQ
+           durable: true,
             exclusive: false,
             autoDelete: false,
             arguments: {
               "x-dead-letter-exchange": rabbitConfig.deadLetterExchange,
-              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue,
+              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue, // Res
             },
           },
           (err2) => {
@@ -64,11 +64,13 @@ const mqttHandler = (app) => {
               let message = channel.get(queue, { noAck: true });
               while (message) {
                 try {
-                  const data = JSON.parse(message.content.toString());
+                   if (message !== null) {
+                 const data = JSON.parse(message.content.toString());
                   console.log("Mensagem lida do RabbitMQ:", data);
 
                   // Armazena a mensagem em memória (opcional)
                   rabbitMessages.push(data);
+                   }
                 } catch (err) {
                   console.error("Erro ao processar mensagem RabbitMQ:", err.message);
                 }
