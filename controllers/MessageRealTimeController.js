@@ -13,14 +13,10 @@ const MessageRealTimeController = {
 
       const rabbitMessages = req.app.locals.rabbitMessages || [];
       
-
-      // Prioriza RabbitMQ como fonte de mensagens
-      const allMessages = rabbitMessages;
-
       const allowedSet = new Set(allowedCodigoHexes);
 
       // Filtra as mensagens pelo número serial permitido
-      const filteredMessages = allMessages
+      const filteredMessages = rabbitMessages
       .filter(msg => msg.numero_serial && allowedSet.has(String(msg.numero_serial)))
       .sort((msgA, msgB) => new Date(msgB.timestamp) - new Date(msgA.timestamp)); // Ordena do mais recente para o mais antigo
 
