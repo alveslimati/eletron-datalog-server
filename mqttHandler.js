@@ -1,7 +1,7 @@
 import mqtt from 'mqtt';
 import amqplib from 'amqplib/callback_api.js';
 
-const rabbitMessages = []; // Para armazenar mensagens do RabbitMQ
+const rabbitMessages = []; // Armazena mensagens em memória temporariamente (opcional)
 const mqttMessages = [];   // Para armazenar mensagens do HiveMQ
 
 const mqttHandler = (app) => {
@@ -40,59 +40,49 @@ const mqttHandler = (app) => {
 
         const queue = rabbitConfig.queueName;
 
-        // Declara a fila utilizando os mesmos argumentos já configurados no RabbitMQ
+        // Declarando a fila com as configurações existentes
         channel.assertQueue(
           queue,
           {
-            durable: true,
+            durable: true, // A fila e as mensagens sobrevivem a reinicializações do RabbitMQ
             exclusive: false,
             autoDelete: false,
             arguments: {
               "x-dead-letter-exchange": rabbitConfig.deadLetterExchange,
-              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue, // Respeitando as configurações existentes
+              "x-dead-letter-routing-key": rabbitConfig.deadLetterQueue,
             },
           },
           (err2) => {
             if (err2) {
-              console.error(
-                `Erro ao declarar fila '${queue}' no RabbitMQ:`,
-                err2.message
-              );
+              console.error(`Erro ao declarar a fila '${queue}':`, err2.message);
               return;
             }
-            console.log(`Fila '${queue}' conectada com sucesso!`);
+            console.log(`Fila '${queue}' configurada com sucesso!`);
 
-            // Consumindo mensagens da fila (com acknowledgment manual)
+            // Apenas lê mensagens da fila quando necessário, sem alterar o status delas
             channel.consume(
               queue,
               (message) => {
                 if (message !== null) {
                   try {
                     const data = JSON.parse(message.content.toString());
-                    console.log("Mensagem recebida do RabbitMQ:", data);
+                    console.log("Mensagem lida do RabbitMQ:", data);
 
-                    // Armazena a mensagem em memória para processamento posterior
+                    // Armazena a mensagem em memória (opcionalmente, pode ser usado pela API)
                     rabbitMessages.push(data);
 
-                    // O ack só deve ser chamado pelo cronjob após o processamento
-                    // Por padrão, nenhuma mensagem será removida da fila nessa etapa.
-
+                    // Não chama `ack` ou `nack` para que a mensagem permaneça no estado `Ready`.
                   } catch (err) {
-                    console.error(
-                      "Erro ao processar mensagem do RabbitMQ:",
-                      err.message
-                    );
+                    console.error("Erro ao processar mensagem do RabbitMQ:", err.message);
                   }
                 }
               },
               {
-                noAck: false, // O acknowledgment não será automático
+                noAck: true, // Evita que a mensagem fique no estado "Unacked"
               }
             );
 
-            console.log(
-              `A fila '${queue}' está aguardando processamento manual das mensagens.`
-            );
+            console.log(`Mensagens da fila '${queue}' sendo lidas sem alterações no status.`);
           }
         );
       });
@@ -120,10 +110,7 @@ const mqttHandler = (app) => {
         console.log(`Mensagem recebida do MQTT no tópico ${topic}:`, data);
         mqttMessages.push(data); // Armazena a mensagem
       } catch (err) {
-        console.error(
-          "Erro ao processar mensagem do MQTT (HiveMQ):",
-          err.message
-        );
+        console.error("Erro ao processar mensagem do MQTT (HiveMQ):", err.message);
       }
     });
   };
@@ -132,8 +119,8 @@ const mqttHandler = (app) => {
   rabbitConnect();
 
   // Disponibiliza mensagens no servidor express
-  app.locals.rabbitMessages = rabbitMessages; // Mensagens do RabbitMQ
-  app.locals.mqttMessages = mqttMessages;     // Mensagens do HiveMQ
+  app.locals.rabbitMessages = rabbitMessages; // Mensagens lidas do RabbitMQ
+  app.locals.mqttMessages = mqttMessages; // Mensagens lidas do HiveMQ
 };
 
 export default mqttHandler;
