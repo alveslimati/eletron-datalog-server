@@ -1,7 +1,8 @@
 import mqtt from 'mqtt';
 import amqplib from 'amqplib/callback_api.js';
 
-const rabbitMessages = []; // Armazena mensagens temporariamente
+// Armazena mensagens temporariamente
+const rabbitMessages = [];
 
 const mqttHandler = (app) => {
   console.log("Inicializando conexão com RabbitMQ e HiveMQ...");
@@ -43,7 +44,7 @@ const mqttHandler = (app) => {
         channel.assertQueue(
           queue,
           {
-            durable: true, // As mensagens permanecerão na fila mesmo após reinício do RabbitMQ
+            durable: true, // Garante que as mensagens sobrevivam a reinicializações do RabbitMQ
             exclusive: false,
             autoDelete: false,
             arguments: {
@@ -67,10 +68,17 @@ const mqttHandler = (app) => {
 
                 if (message) {
                   try {
+                    // Valida se o conteúdo da mensagem existe e é um Buffer
+                    if (!message.content || !(message.content instanceof Buffer)) {
+                      console.warn("Mensagem sem conteúdo válido recebida. Ignorando...");
+                      continue;
+                    }
+
+                    // Converte o conteúdo da mensagem para string e analisa como JSON
                     const data = JSON.parse(message.content.toString());
                     console.log("Mensagem lida do RabbitMQ:", data);
 
-                    // Armazenar a mensagem temporariamente em memória
+                    // Armazena a mensagem temporariamente em memória
                     rabbitMessages.push(data);
 
                   } catch (err) {
