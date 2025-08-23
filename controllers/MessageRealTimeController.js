@@ -15,10 +15,10 @@ const MessageRealTimeController = {
       
       const allowedSet = new Set(allowedCodigoHexes);
 
-      // Filtra as mensagens pelo número serial permitido
+      // Filtra as mensagens pelo número serial permitido e ordena em ordem crescente pelo timestamp
       const filteredMessages = rabbitMessages
-      .filter(msg => msg.numero_serial && allowedSet.has(String(msg.numero_serial)))
-      .sort((msgA, msgB) => new Date(msgB.timestamp) - new Date(msgA.timestamp)); // Ordena do mais recente para o mais antigo
+        .filter(msg => msg.numero_serial && allowedSet.has(String(msg.numero_serial)))
+        .sort((msgA, msgB) => new Date(msgA.timestamp) - new Date(msgB.timestamp)); // Ordena do mais antigo para o mais recente
 
       res.json(filteredMessages);
     } catch (error) {
