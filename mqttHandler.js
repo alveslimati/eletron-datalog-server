@@ -40,7 +40,7 @@ const mqttHandler = (app) => {
 
         const queue = rabbitConfig.queueName;
 
-        // Declara a fila utilizando os mesmos argumentos já configurados no RabbitMQ
+        // Declara a fila utilizando os mesmos argumentos configurados no RabbitMQ
         channel.assertQueue(
           queue,
           {
@@ -62,7 +62,7 @@ const mqttHandler = (app) => {
             }
             console.log(`Fila '${queue}' conectada com sucesso!`);
 
-            // Consumindo mensagens da fila (com acknowledgment manual)
+            // Consumindo mensagens da fila com 'acknowledgment' manual
             channel.consume(
               queue,
               (message) => {
@@ -74,24 +74,27 @@ const mqttHandler = (app) => {
                     // Armazena a mensagem em memória para processamento posterior
                     rabbitMessages.push(data);
 
-                    // O ack só deve ser chamado pelo cronjob após o processamento
-                    // Por padrão, nenhuma mensagem será removida da fila nessa etapa.
-
+                    // Como o processamento do cron job será responsável por validar e armazenar
+                    // a mensagem no banco de dados, marcamos essa mensagem como processada
+                    channel.ack(message); // Reconhece a mensagem imediatamente
                   } catch (err) {
                     console.error(
                       "Erro ao processar mensagem do RabbitMQ:",
                       err.message
                     );
+
+                    // Rejeita a mensagem e move para a DLQ
+                    channel.nack(message, false, false);
                   }
                 }
               },
               {
-                noAck: false, // O acknowledgment não será automático
+                noAck: false, // O acknowledgment será manual
               }
             );
 
             console.log(
-              `A fila '${queue}' está aguardando processamento manual das mensagens.`
+              `A fila '${queue}' está consumindo mensagens.`
             );
           }
         );
