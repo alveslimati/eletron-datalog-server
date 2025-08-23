@@ -1,8 +1,9 @@
 import mqtt from 'mqtt';
 import amqplib from 'amqplib/callback_api.js';
 
+const MAX_MESSAGES_IN_MEMORY = 100; // Limite de mensagens armazenadas em memória
 const rabbitMessages = []; // Armazena mensagens temporariamente na memória
-const mqttMessages = [];   // Para armazenar mensagens do HiveMQ
+const mqttMessages = [];   // Para mensagens do HiveMQ
 
 const mqttHandler = (app) => {
   console.log("Inicializando conexão com RabbitMQ e HiveMQ...");
@@ -61,25 +62,42 @@ const mqttHandler = (app) => {
 
             // Função para realizar leitura pontual das mensagens
             const readMessages = () => {
-              let message = channel.get(queue, { noAck: true });
-              while (message) {
-                try {  
-                  if (!message.content || !(message.content instanceof Buffer)) {
+              let message;
+              let messagesRead = 0; // Contador para controlar mensagens lidas por execução
+
+              do {
+                // Lê uma mensagem da fila
+                message = channel.get(queue, { noAck: true });
+                if (message) {
+                  try {
+                    // Verifica se a mensagem é válida
+                    if (!message.content || !(message.content instanceof Buffer)) {
                       console.warn("Mensagem sem conteúdo válido recebida. Ignorando...");
                       continue;
-                    }  
-                  console.log("Mensagem lida do RabbitMQ:", data);
+                    }
 
-                  // Armazena a mensagem em memória (opcional)
-                  rabbitMessages.push(data);
-                } catch (err) {
-                  console.error("Erro ao processar mensagem RabbitMQ:", err.message);
+                    // Processa o conteúdo da mensagem
+                    const data = JSON.parse(message.content.toString());
+                    console.log("Mensagem lida do RabbitMQ:", data);
+
+                    // Armazena a mensagem em memória
+                    rabbitMessages.push(data);
+
+                    // Remove mensagens mais antigas se o limite for alcançado
+                    if (rabbitMessages.length > MAX_MESSAGES_IN_MEMORY) {
+                      rabbitMessages.shift(); // Remove o item mais antigo no array
+                    }
+
+                    messagesRead++; // Incrementa o contador de mensagens lidas
+                  } catch (err) {
+                    console.error("Erro ao processar mensagem RabbitMQ:", err.message);
+                  }
                 }
-              }
+              } while (message && messagesRead < MAX_MESSAGES_IN_MEMORY); // Lê enquanto houver mensagens e não atingir o limite
             };
 
-            // Chama a função de leitura pontual (opcionalmente com base em triggers externos)
-            readMessages();
+            // Chama a função de leitura pontual
+            readMessages(); // Apenas chamando uma vez (remove setInterval ou loops contínuos)
           }
         );
       });
@@ -105,7 +123,12 @@ const mqttHandler = (app) => {
       try {
         const data = JSON.parse(message.toString());
         console.log(`Mensagem recebida do MQTT no tópico ${topic}:`, data);
-        mqttMessages.push(data); // Armazena a mensagem
+
+        // Adiciona mensagem do MQTT ao array com limite de tamanho
+        mqttMessages.push(data);
+        if (mqttMessages.length > MAX_MESSAGES_IN_MEMORY) {
+          mqttMessages.shift(); // Remove as mensagens mais antigas
+        }
       } catch (err) {
         console.error("Erro ao processar mensagem do MQTT (HiveMQ):", err.message);
       }
