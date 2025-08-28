@@ -6,7 +6,7 @@ import authRoutes from './routes/authRoutes.js'; // Importa o novo router
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import messageRealTimeRoutes from './routes/messageRealTimeRoutes.js';
-import mqttHandler from './mqttHandler.js';
+import { startRabbitConsumer } from './mqttHandler.js';
 import axios from 'axios';
 // --- IMPORTAÇÃO CORRIGIDA ---
 import pool from './config/mysqlDB.js'; // Importa o pool de conexões do MySQL
@@ -44,7 +44,10 @@ app.use(express.json());   // Middleware para JSON
 
 connectDB(); // REMOVER: Era do Mongoose
 
-mqttHandler(app);
+startRabbitConsumer().catch((err) => {
+  console.error('Erro ao inicializar RabbitMQ:', err.message);
+});
+
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes); ;

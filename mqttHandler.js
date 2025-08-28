@@ -1,30 +1,9 @@
 // mqttHandler.js
-import mqtt from 'mqtt';
-import crypto from 'crypto';
+import amqp from 'amqplib';
 
-// Se seu runtime não tiver fetch global (Node < 18), tentamos carregar node-fetch dinamicamente
-let fetchFn = globalThis.fetch;
-async function ensureFetch() {
-  if (!fetchFn) {
-    const mod = await import('node-fetch');
-    fetchFn = mod.default || mod;
-  }
-  return fetchFn;
-}
-
-const MAX_MESSAGES_IN_MEMORY = 1000;
-const RABBIT_PEEK_INTERVAL_MS = 2000; // intervalo de "espiada" na fila
-const RABBIT_PEEK_BATCH = 200;        // quantas mensagens pedir por requisição
-
-// Buffers em memória
-const rabbitMessages = []; // mensagens lidas via peek da fila do RabbitMQ
-const mqttMessages = [];   // reservado caso você use HiveMQ depois
-
-// Set para deduplicação das mensagens "espiadas"
-// Preferimos usar message_id quando disponível; caso contrário, hash do payload
-const seenIds = new Set();
-
-// Configuração hardcoded do RabbitMQ (conforme solicitado)
+// ---------------------------
+// Configuração RabbitMQ
+// ---------------------------
 const rabbitConfig = {
   host: 'shark.rmq.cloudamqp.com',
   port: 5672, // não usamos aqui porque a Management API vai em HTTPS (443), mas mantemos a estrutura
@@ -36,151 +15,101 @@ const rabbitConfig = {
   deadLetterQueue: 'eletron.datalog.queue.dlq',
 };
 
-// Monta a URL da Management API
-// Em CloudAMQP, normalmente é https://<host>/api/...
-// Importante: o virtualHost precisa ser URL-encoded
-function getRabbitManagementUrl() {
-  const vhost = encodeURIComponent(rabbitConfig.virtualHost);
-  const queue = encodeURIComponent(rabbitConfig.queueName);
-  return `https://${rabbitConfig.host}/api/queues/${vhost}/${queue}/get`;
-}
-
-function getAuthHeader() {
-  const token = Buffer.from(`${rabbitConfig.username}:${rabbitConfig.password}`).toString('base64');
-  return `Basic ${token}`;
-}
-
-// Gera uma chave única para deduplicação de mensagens
-function dedupKeyFromMgmtMessage(m) {
-  // Tenta usar message_id se existir
-  const messageId = m?.properties?.message_id;
-  if (messageId) return `id:${messageId}`;
-
-  // Caso não exista, usa hash do payload bruto
-  // O payload vem como string em m.payload (com encoding "auto")
-  const payload = typeof m?.payload === 'string' ? m.payload : JSON.stringify(m?.payload ?? '');
-  const hash = crypto.createHash('sha1').update(payload).digest('hex');
-  return `hash:${hash}`;
-}
-
-// Converte a mensagem da Management API (que é envelope) no objeto de dados que você quer armazenar
-function parseRabbitPayload(m) {
-  // O campo m.payload é string. Tentamos parsear como JSON; se falhar, guardamos como texto.
-  try {
-    const data = JSON.parse(m.payload);
-    return data;
-  } catch (_) {
-    // retorna formato genérico com o texto, mantendo timestamp aproximado para ordenação se necessário
-    return {
-      raw: m.payload,
-      timestamp: new Date().toISOString(),
-    };
-  }
-}
-
-// Adiciona a mensagem ao buffer em memória com limite e deduplicação
-function pushToBufferIfNew(data, key) {
-  if (seenIds.has(key)) return;
-
-  // Mantém set com tamanho controlado (simples LRU por corte)
-  if (seenIds.size > MAX_MESSAGES_IN_MEMORY * 5) {
-    // Limpa em bloco para não crescer demais
-    // Estratégia simples: derruba tudo e reconstrói com o que está no buffer atual
-    seenIds.clear();
-    for (const msg of rabbitMessages) {
-      const k = msg.__dedupKey || null;
-      if (k) seenIds.add(k);
-    }
-  }
-
-  // Controle de tamanho do buffer
-  if (rabbitMessages.length >= MAX_MESSAGES_IN_MEMORY) {
-    const removed = rabbitMessages.shift();
-    if (removed?.__dedupKey) {
-      seenIds.delete(removed.__dedupKey);
-    }
-  }
-
-  // Armazena
-  const wrapped = { ...data, __dedupKey: key };
-  rabbitMessages.push(wrapped);
-  seenIds.add(key);
-}
-
-// Função que “espia” a fila via Management API e reencaminha as mensagens (requeue true)
-async function peekRabbitMessages() {
-  try {
-    const url = getRabbitManagementUrl();
-    const fetch = await ensureFetch();
-
-    const body = {
-      count: RABBIT_PEEK_BATCH,       // quantas mensagens queremos "espiar" por chamada
-      ackmode: 'ack_requeue_true',    // pega e devolve as mensagens à fila (mantém Ready)
-      encoding: 'auto',               // payload como string
-      truncate: 500000,               // limite de bytes
-    };
-
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': getAuthHeader(),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      console.error(`Falha ao espiar mensagens (HTTP ${resp.status}): ${text}`);
-      return;
-    }
-
-    const messages = await resp.json();
-
-    if (!Array.isArray(messages) || messages.length === 0) {
-      // Nada novo nessa rodada
-      return;
-    }
-
-    for (const m of messages) {
-      const key = dedupKeyFromMgmtMessage(m);
-      const data = parseRabbitPayload(m);
-      pushToBufferIfNew(data, key);
-    }
-  } catch (err) {
-    console.error('Erro no peek das mensagens do RabbitMQ (Management API):', err?.message || err);
-  }
-}
-
-// Inicializa o polling periódico para “espiar” a fila
-function startRabbitPeekLoop() {
-  // Faz uma primeira rodada imediata
-  peekRabbitMessages().catch(() => {});
-  // E agenda as próximas
-  return setInterval(() => {
-    peekRabbitMessages().catch(() => {});
-  }, RABBIT_PEEK_INTERVAL_MS);
-}
-
-const mqttHandler = (app) => {
-  console.log('Inicializando (modo leitura sem consumir) RabbitMQ...');
-
-  // Disponibiliza o buffer no Express para a sua controller
-  app.locals.rabbitMessages = rabbitMessages;
-
-  // Inicia o loop de "peek"
-  const intervalId = startRabbitPeekLoop();
-
-  // Se quiser, limpe o intervalo em shutdown do app
-  const cleanup = () => {
-    if (intervalId) clearInterval(intervalId);
-  };
-
-  // Exponha opcionalmente para quem integrar (não é obrigatório)
-  app.on?.('close', cleanup);
-
-  // Observação: Import de mqtt mantido para preservar a estrutura, embora não utilizado aqui
-  console.log('Configuração concluída (sem consume/get; mensagens permanecem Ready).');
+// ---------------------------
+// Buffer em memória
+// ---------------------------
+const BUFFER_MAX = 10000;
+const buffer = [];
+let stats = {
+  consumed: 0,
+  parsedOk: 0,
+  parseErrors: 0,
 };
 
-export default mqttHandler;
+// Adiciona mensagem ao buffer
+function pushToBuffer(message) {
+  buffer.push(message);
+  if (buffer.length > BUFFER_MAX) {
+    buffer.shift(); // Remove as mensagens mais antigas
+  }
+}
+
+// Recupera mensagens filtradas do buffer
+export function getBufferedMessages({ numero_serial, limit = 200, sinceTs, untilTs } = {}) {
+  let filtered = buffer;
+
+  if (numero_serial) {
+    filtered = filtered.filter((item) => item.numero_serial === numero_serial);
+  }
+  if (sinceTs) {
+    filtered = filtered.filter((item) => item.timestamp >= sinceTs);
+  }
+  if (untilTs) {
+    filtered = filtered.filter((item) => item.timestamp <= untilTs);
+  }
+
+  // Ordena e aplica limite
+  filtered = filtered.slice(-limit).sort((a, b) => b.timestamp - a.timestamp);
+  return filtered;
+}
+
+// Retorna as estatísticas do consumo
+export function getStats() {
+  return {
+    bufferSize: buffer.length,
+    bufferMax: BUFFER_MAX,
+    stats,
+  };
+}
+
+// ---------------------------
+// Consumo do RabbitMQ
+// ---------------------------
+let connection = null;
+let channel = null;
+
+// Processa mensagens da fila
+async function onMessage(msg) {
+  try {
+    stats.consumed++;
+
+    const payload = JSON.parse(msg.content.toString());
+    payload.timestamp = new Date(payload.timestamp).getTime(); // Normaliza timestamp
+    pushToBuffer(payload);
+
+    stats.parsedOk++;
+    channel.ack(msg);
+  } catch (err) {
+    stats.parseErrors++;
+    channel.nack(msg, false, false); // Direciona para DLQ se configurada
+    console.error('Erro ao processar mensagem:', err.message);
+  }
+}
+
+// Inicializa o consumidor RabbitMQ
+export async function startRabbitConsumer() {
+  if (connection && channel) {
+    return; // Já conectado
+  }
+
+  const amqpUrl = `amqp://${encodeURIComponent(rabbitConfig.username)}:${encodeURIComponent(
+    rabbitConfig.password
+  )}@${rabbitConfig.host}:${rabbitConfig.port}/${encodeURIComponent(rabbitConfig.virtualHost)}`;
+
+  connection = await amqp.connect(amqpUrl);
+  
+  connection.on('close', () => {
+    console.warn('Conexão fechada. Tentando reconectar...');
+    connection = null;
+    channel = null;
+  });
+
+  channel = await connection.createChannel();
+  await channel.prefetch(100); // Controla o número de mensagens em trânsito
+  await channel.assertQueue(rabbitConfig.queueName, { durable: true });
+  await channel.assertExchange(rabbitConfig.deadLetterExchange, 'direct', { durable: true });
+  await channel.assertQueue(rabbitConfig.deadLetterQueue, { durable: true });
+  await channel.consume(rabbitConfig.queueName, onMessage, { noAck: false });
+
+  console.log(`[RabbitMQ] Consumidor iniciado na fila: ${rabbitConfig.queueName}`);
+}
