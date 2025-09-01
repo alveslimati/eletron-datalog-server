@@ -42,7 +42,7 @@ app.use(cors(corsOptions));
 app.use(express.json());   // Middleware para JSON
 
 
-
+connectDB(); // REMOVER: Era do Mongoose
 
 startRealtimeConsumer().catch((err) => {
   console.error('Erro ao inicializar RabbitMQ (fila espelho):', err?.message || err);
