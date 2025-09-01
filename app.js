@@ -1,29 +1,32 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-// REMOVIDO: import connectDB from './config/db.js';
-import authRoutes from './routes/authRoutes.js';
+import connectDB from './config/db.js';
+import authRoutes from './routes/authRoutes.js'; // Importa o novo router
 import userRoutes from './routes/userRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import messageRealTimeRoutes from './routes/messageRealTimeRoutes.js';
-// ANTIGO (remover): import { startRabbitConsumer } from './mqttHandler.js';
-import { startRealtimeConsumer } from './mqttHandler.js'; // NOVO: consumidor da fila espelho
+import { startRealtimeConsumer } from './mqttHandler.js';
 import axios from 'axios';
-import pool from './config/mysqlDB.js'; // Pool MySQL
+// --- IMPORTAÇÃO CORRIGIDA ---
+import pool from './config/mysqlDB.js'; // Importa o pool de conexões do MySQL
 
 dotenv.config();
 const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:4173',
+   'http://localhost:4173',
   'https://main.d1o387bagj6v4q.amplifyapp.com'
 ];
 
 const corsOptions = {
   origin: (origin, callback) => {
+    // Permitir sem origin (ex: Postman, server2server)
     if (!origin) return callback(null, true);
+    // Permitir localhost e amplify
     if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Bloquear outras origens
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -33,24 +36,31 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
 
-// REMOVIDO: connectDB(); // Era do Mongoose
 
-// Inicializa o consumidor da FILA ESPELHO (alimenta o buffer do getRealTimeMessages)
+// Middleware para garantir que a rota OPTIONS funcione (preflight)
+app.use(express.json());   // Middleware para JSON
+
+
+
+
 startRealtimeConsumer().catch((err) => {
   console.error('Erro ao inicializar RabbitMQ (fila espelho):', err?.message || err);
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
+app.use('/api/users', userRoutes); ;
 app.use('/api/mensagens', messageRoutes);
 app.use('/api/mensagensRealTime', messageRealTimeRoutes);
 
-// Rota de validação (MySQL)
+// --- REMOVER A CONFIGURAÇÃO ANTIGA DO POOL DO POSTGRESQL ---
+// export const pool = new Pool({...}); // REMOVER TODO ESTE BLOCO
+
+// --- ROTA DE VALIDAÇÃO AJUSTADA PARA MYSQL ---
 app.post('/api/validarDispositivo', async (req, res) => {
   const { codigoHex, cnpj } = req.body;
-
+ 
+  // Validações de formato (mantidas, pois são rápidas e não dependem do DB)
   if (!codigoHex || !cnpj) {
     return res.status(400).json({ message: 'Código Serial e CNPJ são obrigatórios!' });
   }
@@ -60,20 +70,24 @@ app.post('/api/validarDispositivo', async (req, res) => {
     return res.status(400).json({ message: 'CNPJ inválido! Deve conter 14 dígitos numéricos.' });
   }
 
-  // Ajuste aqui conforme seu padrão real:
-  // Se seu serial tem 16 hex, use {16}; se tem 8, volte para {8}
-  const codigoHexRegex = /^[0-9A-Fa-f]{16}$/; // 16 caracteres hexadecimais
+  // Ajuste a regex se o código hexadecimal tiver um tamanho diferente de 8
+  // Pelo seu INSERT, parece ter 16 caracteres hexadecimais (8 bytes)
+  const codigoHexRegex = /^[0-9A-Fa-f]{8}$/; // Ajustado para 16 caracteres hexadecimais
   if (!codigoHexRegex.test(codigoHex)) {
-    return res.status(400).json({ message: 'Código serial inválido! Deve conter 16 caracteres hexadecimais.' });
+    return res.status(400).json({ message: 'Código serial inválido! Deve conter 8 caracteres hexadecimais.' });
   }
 
   try {
+    // --- SINTAXE SQL AJUSTADA ---
+    // MySQL usa '?' como placeholder em vez de '$1', '$2', etc.
     const selectQuery = `
       SELECT id, id_maquina, cnpj 
       FROM dispositivo_esp32 
       WHERE codigo_hex = ? AND (cnpj IS NULL OR cnpj = ?)
     `;
     const selectValues = [codigoHex, cnpj];
+    
+    // A forma de executar a query muda um pouco com 'mysql2'
     const [rows] = await pool.query(selectQuery, selectValues);
 
     if (rows.length === 0) {
@@ -83,6 +97,7 @@ app.post('/api/validarDispositivo', async (req, res) => {
     const dispositivo = rows[0];
 
     if (dispositivo.cnpj === null) {
+      // NOW() funciona tanto em PostgreSQL quanto em MySQL, então não precisa mudar.
       const updateQuery = `
         UPDATE dispositivo_esp32
         SET cnpj = ?, data_registro = NOW()
