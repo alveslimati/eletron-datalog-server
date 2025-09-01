@@ -1,382 +1,332 @@
-// mqttHandler.js
-// Conector RabbitMQ com buffer em memória, DLX/DLQ corretos, reconexão e consumo robusto
+// mqttHandler.js (ESM)
+// Consumo "realtime" a partir de uma fila espelho no RabbitMQ (CloudAMQP),
+// com buffer em memória para o endpoint getRealTimeMessages e reconexão resiliente.
+
 import amqp from 'amqplib';
 
-// ---------------------------
-// Configuração RabbitMQ
-// ---------------------------
-// OBS: mantenha esta estrutura como você pediu. Ajuste apenas username/password e, se necessário, o vhost.
-const rabbitConfig = {
+// =========================
+// Configurações (CloudAMQP) - HARDCODED
+// =========================
+const cloudAmqp = {
   protocol: 'amqps',
   host: 'shark.rmq.cloudamqp.com',
-  port: 5671, // CloudAMQP (AMQPS)
-  vhost: 'xbyhpdes', // Em CloudAMQP, geralmente é igual ao username, ex.: 'abcdxyz'
+  port: 5671, // CloudAMQPS
+  vhost: 'xbyhpdes',
   username: 'xbyhpdes',
   password: 'dcP6ky94M8NRuEwhrTJDK0AhgtYG5tsd',
-
-  // Topologia
-  queueName: 'eletron.datalog.queue',
-  deadLetterExchange: 'dead_letter_exchange',
-  deadLetterQueue: 'eletron.datalog.queue.dlq',
-
-  // Consumo
-  prefetch: 100,
-
-  // Buffer
-  maxBuffer: 50000,
-
-  // Reconexão
-  reconnect: {
-    initialDelayMs: 1000,
-    maxDelayMs: 30000,
-    factor: 1.8,
-    jitterMs: 500,
-  },
+  // Recomendações CloudAMQP
+  heartbeat: 30,
+  connectionTimeout: 30000,
 };
 
-// ---------------------------
-// Estado interno
-// ---------------------------
-let connection = null;
-let channel = null;
-let isConnecting = false;
-let stopped = false;
-let reconnectAttempts = 0;
+// Monta a URL AMQPS final
+const AMQP_URL = `${cloudAmqp.protocol}://${encodeURIComponent(cloudAmqp.username)}:${encodeURIComponent(cloudAmqp.password)}@${cloudAmqp.host}/${encodeURIComponent(cloudAmqp.vhost)}?heartbeat=${cloudAmqp.heartbeat}&connection_timeout=${cloudAmqp.connectionTimeout}`;
 
-let buffer = [];
-const stats = {
-  startedAt: Date.now(),
-  lastConnectedAt: null,
-  lastErrorAt: null,
-  lastErrorMessage: null,
-  totalReceived: 0,
-  totalAcked: 0,
-  totalNacked: 0,
-  reconnects: 0,
+// =========================
+// Config Rabbit/Filas (HARDCODED)
+// Ajuste nomes conforme seu domínio de eventos.
+// =========================
+const rabbitConfig = {
+  // Exchange principal onde o publisher envia
+  exchange: 'eletron.datalog.exchange',
+  exchangeType: 'topic',
+
+  // Binding key que você quer espelhar para o realtime
+  bindingKey: 'eletron.datalog.#',
+
+  // Fila espelho (realtime) consumida pelo app
+  realtimeQueue: 'eletron.datalog.queue.realtime',
+
+  // DLX/DLQ
+  realtimeDLX: 'eletron.datalog.realtime.dlx',
+  realtimeDLQ: 'eletron.datalog.queue.realtime.dlq',
+
+  // Parametrizações da fila realtime
+  realtimeTtlMs: 60000, // 60s
+  realtimeMaxLength: 20000, // até 20k mensagens
+  prefetch: 50, // paralelismo do consumer
 };
 
-// ---------------------------
-// Utilitários
-// ---------------------------
-function amqpUrlFromConfig(cfg) {
-  // amqps://username:password@host/vhost
-  const encUser = encodeURIComponent(cfg.username);
-  const encPass = encodeURIComponent(cfg.password);
-  const encVhost = encodeURIComponent(cfg.vhost || '/');
-  return `${cfg.protocol}://${encUser}:${encPass}@${cfg.host}:${cfg.port}/${encVhost}`;
-}
+// =========================
+/** Buffer em memória (HARDCODED) */
+// =========================
+const BUFFER_MAX = 25000;
+const buffer = [];
 
-function sleep(ms) {
-  return new Promise((res) => setTimeout(res, ms));
-}
-
-function clampBuffer() {
-  if (buffer.length > rabbitConfig.maxBuffer) {
-    // Remove o excesso mais antigo de uma vez (eficiente)
-    buffer.splice(0, buffer.length - rabbitConfig.maxBuffer);
+function pushToBuffer(item) {
+  buffer.push(item);
+  if (buffer.length > BUFFER_MAX) {
+    buffer.splice(0, buffer.length - BUFFER_MAX); // remove os mais antigos
   }
 }
 
-function extractTimestamp(payload, properties) {
-  // Tenta extrair um timestamp coerente, em milissegundos
-  // Ordem de preferência: payload.ts | payload.timestamp | payload.createdAt | properties.timestamp | agora
-  const candidates = [
-    payload?.ts,
-    payload?.timestamp,
-    payload?.createdAt,
-    properties?.timestamp, // em AMQP costuma ser segundos; normalizar
-  ].filter((v) => v !== undefined && v !== null);
-
-  let ts = Date.now();
-  for (const c of candidates) {
-    const n = Number(c);
-    if (!Number.isNaN(n) && n > 0) {
-      // Se for claramente em segundos (ex.: 10 dígitos), converte para ms
-      ts = n < 2e10 ? n * 1000 : n;
-      break;
-    }
-  }
-  return ts;
-}
-
-function toStringOrNull(value) {
-  if (value === undefined || value === null) return null;
-  const s = String(value).trim();
-  return s.length ? s : null;
-}
-
-function pushToBuffer(msgObj) {
-  buffer.push(msgObj);
-  clampBuffer();
-}
-
-function normalizeIncomingMessage(msg) {
-  let raw = null;
-  let payload = null;
-
-  try {
-    raw = msg.content.toString('utf8');
-  } catch {
-    raw = null;
-  }
-
-  try {
-    payload = raw ? JSON.parse(raw) : null;
-  } catch {
-    payload = { raw };
-  }
-
-  const numero_serial =
-    toStringOrNull(payload?.numero_serial) ||
-    toStringOrNull(payload?.serial) ||
-    toStringOrNull(payload?.device_id) ||
-    null;
-
-  const ts = extractTimestamp(payload, msg.properties);
-
-  return {
-    ts,
-    numero_serial,
-    payload, // Conteúdo útil para seu front/consumidor HTTP
-    properties: msg.properties || {},
-    fields: msg.fields || {},
-    receivedAt: Date.now(),
-  };
-}
-
-// ---------------------------
-// Buffer: consulta
-// ---------------------------
-export function getBufferedMessages({ numero_serial = null, sinceTs, untilTs, limit = 200 } = {}) {
-  const since = sinceTs !== undefined ? Number(sinceTs) : undefined;
-  const until = untilTs !== undefined ? Number(untilTs) : undefined;
-
-  let result = buffer;
+/**
+ * Retorna mensagens do buffer com filtros:
+ * - numero_serial (string exata)
+ * - sinceTs / untilTs (timestamps em ms)
+ * - limit (máximo de mensagens retornadas; padrão 500; teto 10000)
+ */
+export function getBufferedMessages({ numero_serial, sinceTs, untilTs, limit } = {}) {
+  let data = buffer;
 
   if (numero_serial) {
-    result = result.filter((m) => m.numero_serial === numero_serial);
-  }
-  if (since !== undefined) {
-    result = result.filter((m) => m.ts >= since);
-  }
-  if (until !== undefined) {
-    result = result.filter((m) => m.ts <= until);
-  }
-
-  // Ordena por ts ascendente para facilitar paginação temporal
-  result = result.slice().sort((a, b) => a.ts - b.ts);
-
-  if (limit && result.length > limit) {
-    result = result.slice(-limit);
+    data = data.filter(m => {
+      const ns =
+        (m.payload && (m.payload.numero_serial || m.payload.numeroSerial || m.payload.serial)) ||
+        m.properties?.headers?.numero_serial ||
+        m.properties?.headers?.serial;
+      return ns === numero_serial;
+    });
   }
 
-  // Retorne objetos simples (ts, numero_serial, payload) — leve e direto
-  return result.map((m) => ({
-    ts: m.ts,
-    numero_serial: m.numero_serial,
-    payload: m.payload,
-  }));
+  if (sinceTs != null) {
+    const s = Number(sinceTs);
+    data = data.filter(m => m.ts >= s);
+  }
+  if (untilTs != null) {
+    const u = Number(untilTs);
+    data = data.filter(m => m.ts <= u);
+  }
+
+  // ordena por timestamp ascendente
+  data = data.slice().sort((a, b) => a.ts - b.ts);
+
+  const finalLimit = Math.min(Number(limit || 500), 10000);
+  return data.slice(0, finalLimit);
 }
 
-export function getStats() {
-  return {
-    connected: !!channel,
-    bufferSize: buffer.length,
-    maxBuffer: rabbitConfig.maxBuffer,
-    totalReceived: stats.totalReceived,
-    totalAcked: stats.totalAcked,
-    totalNacked: stats.totalNacked,
-    reconnects: stats.reconnects,
-    startedAt: stats.startedAt,
-    lastConnectedAt: stats.lastConnectedAt,
-    lastErrorAt: stats.lastErrorAt,
-    lastErrorMessage: stats.lastErrorMessage,
-    queueName: rabbitConfig.queueName,
-    deadLetterExchange: rabbitConfig.deadLetterExchange,
-    deadLetterQueue: rabbitConfig.deadLetterQueue,
-    prefetch: rabbitConfig.prefetch,
-  };
+// =========================
+// Conexão/Consumo e Reconexão
+// =========================
+let conn = null;
+let ch = null;
+let consumerTag = null;
+let starting = false;
+let stopped = false;
+
+const RECONNECT_MIN_MS = 2000;
+const RECONNECT_MAX_MS = 30000;
+let currentDelay = RECONNECT_MIN_MS;
+let reconnectTimer = null;
+
+function maskUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.password) u.password = '***';
+    return u.toString();
+  } catch {
+    return 'amqps://***:***@***';
+  }
 }
 
-// ---------------------------
-// Publicação opcional
-// ---------------------------
-export async function publishToQueue(message) {
-  if (!channel) {
-    throw new Error('Canal AMQP ainda não está disponível.');
-  }
-  const content = Buffer.from(JSON.stringify(message), 'utf8');
-  // Não (re)declara a fila principal aqui para evitar 406; assume que já existe
-  const ok = channel.sendToQueue(rabbitConfig.queueName, content, {
-    contentType: 'application/json',
-    deliveryMode: 2, // persistente
-    timestamp: Math.floor(Date.now() / 1000),
+async function assertTopology(channel) {
+  // Exchange dos dados
+  await channel.assertExchange(rabbitConfig.exchange, rabbitConfig.exchangeType, {
+    durable: true,
   });
-  return ok;
+
+  // DLX e DLQ da realtime
+  await channel.assertExchange(rabbitConfig.realtimeDLX, 'fanout', { durable: true });
+  await channel.assertQueue(rabbitConfig.realtimeDLQ, {
+    durable: true,
+  });
+  await channel.bindQueue(rabbitConfig.realtimeDLQ, rabbitConfig.realtimeDLX, '');
+
+  // Fila realtime (espelho) com TTL e max-length
+  await channel.assertQueue(rabbitConfig.realtimeQueue, {
+    durable: true,
+    arguments: {
+      'x-message-ttl': rabbitConfig.realtimeTtlMs,
+      'x-max-length': rabbitConfig.realtimeMaxLength,
+      'x-dead-letter-exchange': rabbitConfig.realtimeDLX,
+      // 'x-queue-mode': 'lazy', // opcional
+    },
+  });
+
+  // Bind fila realtime à exchange principal
+  await channel.bindQueue(rabbitConfig.realtimeQueue, rabbitConfig.exchange, rabbitConfig.bindingKey);
 }
 
-// ---------------------------
-// Consumo
-// ---------------------------
-async function onMessage(msg) {
-  if (!msg) return;
+function parseMessage(msg) {
+  let payload = null;
   try {
-    stats.totalReceived += 1;
-
-    const normalized = normalizeIncomingMessage(msg);
-    pushToBuffer(normalized);
-
-    channel.ack(msg);
-    stats.totalAcked += 1;
+    const content = msg.content?.toString('utf8') || '';
+    payload = content ? JSON.parse(content) : null;
   } catch (err) {
-    stats.totalNacked += 1;
-    // Nack sem requeue => vai para DLQ se a fila principal tiver DLX configurado
-    try {
-      channel.nack(msg, false, false);
-    } catch {
-      // ignora
-    }
-    console.error('[RabbitMQ] Erro ao processar mensagem:', err?.message || err);
+    return { ok: false, error: err };
   }
+
+  const headers = msg.properties?.headers || {};
+  const ts =
+    (typeof payload?.ts === 'number' && payload.ts) ||
+    (typeof headers.ts === 'number' && headers.ts) ||
+    Date.now();
+
+  const normalized = {
+    ts,
+    payload,
+    fields: msg.fields,
+    properties: msg.properties,
+  };
+
+  return { ok: true, data: normalized };
 }
 
-async function ensureTopology(ch) {
-  // Garante DLX e DLQ
-  await ch.assertExchange(rabbitConfig.deadLetterExchange, 'direct', { durable: true });
-  await ch.assertQueue(rabbitConfig.deadLetterQueue, { durable: true });
-  // Bind DLQ com a routing key que o seu DLX usa (você confirmou que é o nome da fila principal)
-  await ch.bindQueue(
-    rabbitConfig.deadLetterQueue,
-    rabbitConfig.deadLetterExchange,
-    rabbitConfig.queueName
-  );
+function scheduleReconnect() {
+  if (stopped) return;
+  if (reconnectTimer) return;
 
-  // Não redeclara a fila principal se ela já existir (evita 406)
-  try {
-    await ch.checkQueue(rabbitConfig.queueName);
-    console.log(`[RabbitMQ] Fila existente confirmada: ${rabbitConfig.queueName} (sem redeclaração)`);
-  } catch (err) {
-    if (err?.code === 404) {
-      // Cria a fila com DLX alinhado ao que existe no broker
-      await ch.assertQueue(rabbitConfig.queueName, {
-        durable: true,
-        arguments: {
-          'x-dead-letter-exchange': rabbitConfig.deadLetterExchange,
-          'x-dead-letter-routing-key': rabbitConfig.queueName,
-        },
-      });
-      console.log(`[RabbitMQ] Fila criada: ${rabbitConfig.queueName} com DLX/DLRK`);
-    } else {
-      throw err;
-    }
-  }
-}
-
-async function createChannel(conn) {
-  const ch = await conn.createChannel();
-  await ch.prefetch(rabbitConfig.prefetch);
-  await ensureTopology(ch);
-  await ch.consume(rabbitConfig.queueName, onMessage, { noAck: false });
-  console.log(`[RabbitMQ] Consumidor iniciado na fila: ${rabbitConfig.queueName}`);
-  return ch;
-}
-
-async function connectWithRetry() {
-  if (isConnecting) return;
-  isConnecting = true;
-
-  let delay = rabbitConfig.reconnect.initialDelayMs;
-
-  while (!stopped) {
+  const delay = Math.min(currentDelay, RECONNECT_MAX_MS);
+  console.warn(`[AMQP] Tentando reconectar em ${delay}ms...`);
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    currentDelay = Math.min(currentDelay * 2, RECONNECT_MAX_MS);
     try {
-      const url = amqpUrlFromConfig(rabbitConfig);
-      connection = await amqp.connect(url, {
-        // Em CloudAMQP com AMQPS, as opções default geralmente bastam
-        // rejectUnauthorized: true, // se usar certificados próprios, ajuste conforme necessário
-      });
-
-      connection.on('close', (err) => {
-        console.warn('[RabbitMQ] Conexão fechada:', err ? err.message : '(sem erro)');
-        channel = null;
-        connection = null;
-        if (!stopped) {
-          stats.reconnects += 1;
-          connectWithRetry().catch(() => {});
-        }
-      });
-
-      connection.on('error', (err) => {
-        console.error('[RabbitMQ] Erro de conexão:', err?.message || err);
-      });
-
-      channel = await createChannel(connection);
-
-      channel.on('close', () => {
-        console.warn('[RabbitMQ] Canal fechado.');
-      });
-
-      channel.on('error', (err) => {
-        console.error('[RabbitMQ] Erro no canal:', err?.message || err);
-      });
-
-      stats.lastConnectedAt = Date.now();
-      reconnectAttempts = 0;
-      isConnecting = false;
-      return; // conectado com sucesso
+      await startRealtimeConsumer();
     } catch (err) {
-      stats.lastErrorAt = Date.now();
-      stats.lastErrorMessage = err?.message || String(err);
-      console.error('[RabbitMQ] Falha ao conectar/criar canal:', stats.lastErrorMessage);
-
-      reconnectAttempts += 1;
-      stats.reconnects += 1;
-
-      // Backoff exponencial com jitter
-      const jitter = Math.floor(Math.random() * rabbitConfig.reconnect.jitterMs);
-      await sleep(delay + jitter);
-      delay = Math.min(Math.floor(delay * rabbitConfig.reconnect.factor), rabbitConfig.reconnect.maxDelayMs);
+      console.error('[AMQP] Erro no ciclo de reconexão:', err?.message || err);
+      scheduleReconnect();
     }
-  }
-
-  isConnecting = false;
+  }, delay);
 }
 
-// ---------------------------
-// Controle público
-// ---------------------------
-export async function startRabbitConsumer() {
-  stopped = false;
-  if (channel) {
-    console.log('[RabbitMQ] Consumidor já está ativo.');
+function resetBackoff() {
+  currentDelay = RECONNECT_MIN_MS;
+}
+
+async function safeCloseChannel() {
+  try {
+    if (ch) {
+      await ch.close();
+    }
+  } catch {
+    // ignore
+  } finally {
+    ch = null;
+  }
+}
+
+async function safeCloseConnection() {
+  try {
+    if (conn) {
+      await conn.close();
+    }
+  } catch {
+    // ignore
+  } finally {
+    conn = null;
+  }
+}
+
+export function isConnected() {
+  return Boolean(conn) && Boolean(ch);
+}
+
+export async function stopRealtimeConsumer() {
+  stopped = true;
+  starting = false;
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  try {
+    if (ch && consumerTag) {
+      await ch.cancel(consumerTag);
+      consumerTag = null;
+    }
+  } catch {
+    // ignore
+  }
+
+  await safeCloseChannel();
+  await safeCloseConnection();
+  console.info('[AMQP] Consumo realtime parado.');
+}
+
+/**
+ * Inicia o consumo realtime.
+ * Opcionalmente, você pode passar onMessage(msgNormalizado) para tratar cada mensagem além do buffer.
+ */
+export async function startRealtimeConsumer({ onMessage } = {}) {
+  if (starting) {
+    console.info('[AMQP] startRealtimeConsumer já em progresso...');
     return;
   }
-  await connectWithRetry();
-}
-
-export async function stopRabbitConsumer() {
-  stopped = true;
-
-  try {
-    if (channel) {
-      await channel.close().catch(() => {});
-    }
-  } finally {
-    channel = null;
+  if (isConnected()) {
+    console.info('[AMQP] Já conectado. Reutilizando canal existente.');
+    return;
   }
 
+  starting = true;
+  stopped = false;
+
   try {
-    if (connection) {
-      await connection.close().catch(() => {});
-    }
-  } finally {
-    connection = null;
+    console.info('[AMQP] Conectando em', maskUrl(AMQP_URL));
+    conn = await amqp.connect(AMQP_URL); // AMQPS (TLS) implícito via protocolo
+    resetBackoff();
+
+    conn.on('error', (err) => {
+      console.error('[AMQP] Conexão erro:', err?.message || err);
+    });
+
+    conn.on('close', () => {
+      console.warn('[AMQP] Conexão fechada.');
+      safeCloseChannel().catch(() => {});
+      conn = null;
+      ch = null;
+      if (!stopped) scheduleReconnect();
+    });
+
+    ch = await conn.createChannel();
+    await assertTopology(ch);
+    await ch.prefetch(rabbitConfig.prefetch);
+
+    const consumeResult = await ch.consume(
+      rabbitConfig.realtimeQueue,
+      async (msg) => {
+        if (!msg) return;
+        try {
+          const parsed = parseMessage(msg);
+          if (!parsed.ok) {
+            console.warn('[AMQP] Falha no parse, enviando para DLQ:', parsed.error?.message || parsed.error);
+            ch.nack(msg, false, false); // não requeue -> vai para DLQ
+            return;
+          }
+
+          const item = parsed.data;
+          pushToBuffer(item);
+
+          // callback externo, se fornecido
+          if (typeof onMessage === 'function') {
+            try {
+              await onMessage(item);
+            } catch (cbErr) {
+              // callback não deve impedir ack; logamos o erro e seguimos
+              console.error('[AMQP] onMessage callback erro:', cbErr?.message || cbErr);
+            }
+          }
+
+          ch.ack(msg);
+        } catch (err) {
+          console.error('[AMQP] Erro processando mensagem, enviando para DLQ:', err?.message || err);
+          ch.nack(msg, false, false);
+        }
+      },
+      { noAck: false }
+    );
+
+    consumerTag = consumeResult.consumerTag;
+    starting = false;
+
+    console.info('[AMQP] Realtime consumer iniciado. Fila:', rabbitConfig.realtimeQueue);
+  } catch (err) {
+    starting = false;
+    console.error('[AMQP] Falha ao iniciar consumo:', err?.message || err);
+    await safeCloseChannel();
+    await safeCloseConnection();
+    if (!stopped) scheduleReconnect();
+    throw err;
   }
 }
-
-export default {
-  startRabbitConsumer,
-  stopRabbitConsumer,
-  getBufferedMessages,
-  getStats,
-  publishToQueue,
-};

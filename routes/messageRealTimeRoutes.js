@@ -1,6 +1,7 @@
+// routes/messageRealTimeRoutes.js
 import express from 'express';
 import MessageRealTimeController from '../controllers/MessageRealTimeController.js';
-import checkToken from '../middleware/auth.js'; // Importa o middleware
+import checkToken from '../middleware/auth.js';
 
 const router = express.Router();
 
