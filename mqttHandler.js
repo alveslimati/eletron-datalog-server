@@ -91,7 +91,7 @@ export function getBufferedMessages({ numero_serial, sinceTs, untilTs, limit } =
   // ordena por timestamp ascendente
   data = data.slice().sort((a, b) => a.ts - b.ts);
 
-  const finalLimit = Math.min(Number(limit || 500), 10000);
+  const finalLimit = Math.min(Number(limit || 9000), 10000);
   return data.slice(0, finalLimit);
 }
 
