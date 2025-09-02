@@ -58,10 +58,12 @@ const MessageRealTimeController = {
 
       // Filtra as mensagens pelo número serial permitido
       const filteredMessages = allMessages.filter((msg) => {
-        const serial = String(msg.numero_serial || '').trim(); // Garante que seja string e remove espaços em branco
-        const isAllowed = allowedSet.has(serial); // Verifica se está no allowedSet
+        const serial = String(msg.numero_serial || '').trim(); // Garantindo string e removendo espaços
+        const isAllowed = Array.from(allowedSet).some((allowed) => allowed === serial); // Verifica se qualquer valor no allowedSet corresponde
         if (!isAllowed) {
-          console.log(`[DEBUG] Mensagem ignorada. Numero_serial: "${serial}", Permitidos: ${[...allowedSet]}`);
+          console.log(
+            `[DEBUG] Mensagem ignorada. Numero_serial: "${serial}", Permitidos: ${[...allowedSet]}`
+          );
         }
         return isAllowed;
       });
