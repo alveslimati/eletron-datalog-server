@@ -42,7 +42,7 @@ const MessageRealTimeController = {
       }
 
       // Garantimos que o allowedCodigoHexes seja tratado como um Set (otimiza o filtro abaixo)
-      const allowedSet = new Set(allowedCodigoHexes);
+      const allowedSet = new Set(allowedCodigoHexes.map((hex) => String(hex).trim()));
 
       // Calcula os timestamps do dia atual no horário de Brasília, caso os filtros não sejam fornecidos
       const { sinceTs: defaultSince, untilTs: defaultUntil } = getDayTimestampsInUTC();
@@ -57,9 +57,14 @@ const MessageRealTimeController = {
       const allMessages = getBufferedMessages(filters);
 
       // Filtra as mensagens pelo número serial permitido
-      const filteredMessages = allMessages.filter(
-        (msg) => msg.numero_serial && allowedSet.has(String(msg.numero_serial))
-      );
+      const filteredMessages = allMessages.filter((msg) => {
+        const serial = String(msg.numero_serial || '').trim(); // Garante que seja string e remove espaços em branco
+        const isAllowed = allowedSet.has(serial); // Verifica se está no allowedSet
+        if (!isAllowed) {
+          console.log(`[DEBUG] Mensagem ignorada. Numero_serial: "${serial}", Permitidos: ${[...allowedSet]}`);
+        }
+        return isAllowed;
+      });
 
       return res.status(200).json({
         ok: true,
