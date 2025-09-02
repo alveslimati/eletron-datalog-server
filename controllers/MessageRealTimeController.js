@@ -1,4 +1,3 @@
-// controllers/MessageRealTimeController.js
 import { getBufferedMessages } from '../mqttHandler.js';
 
 /**
@@ -28,33 +27,48 @@ function getDayTimestampsInUTC() {
 
 const MessageRealTimeController = {
   /**
-   * Endpoint para obter mensagens do buffer.
-   * Suporta retornar apenas mensagens do dia atual no horário de Brasília.
+   * Endpoint para obter mensagens do buffer, filtradas pelo número serial 
+   * (lista de códigos permitidos para o usuário atual).
    */
   async getRealTimeMessages(req, res) {
     try {
-      const { numero_serial, sinceTs, untilTs, limit } = req.body || {};
+      const { allowedCodigoHexes, sinceTs, untilTs, limit } = req.body || {};
+
+      // Valida os códigos permitidos
+      if (!Array.isArray(allowedCodigoHexes) || allowedCodigoHexes.length === 0) {
+        return res
+          .status(400)
+          .json({ message: 'A propriedade "allowedCodigoHexes" deve ser um array não vazio.' });
+      }
+
+      // Garantimos que o allowedCodigoHexes seja tratado como um Set (otimiza o filtro abaixo)
+      const allowedSet = new Set(allowedCodigoHexes);
 
       // Calcula os timestamps do dia atual no horário de Brasília, caso os filtros não sejam fornecidos
       const { sinceTs: defaultSince, untilTs: defaultUntil } = getDayTimestampsInUTC();
 
       const filters = {
-        numero_serial: numero_serial || undefined, // string ou array
         sinceTs: sinceTs ? Number(sinceTs) : defaultSince,
         untilTs: untilTs ? Number(untilTs) : defaultUntil,
         limit: limit ? Number(limit) : undefined,
       };
 
-      const data = getBufferedMessages(filters);
+      // Busca mensagens no buffer
+      const allMessages = getBufferedMessages(filters);
+
+      // Filtra as mensagens pelo número serial permitido
+      const filteredMessages = allMessages.filter(
+        (msg) => msg.numero_serial && allowedSet.has(String(msg.numero_serial))
+      );
 
       return res.status(200).json({
         ok: true,
-        count: data.length,
-        data,
+        count: filteredMessages.length,
+        data: filteredMessages,
       });
     } catch (err) {
       console.error('[MessageRealTimeController] Erro:', err?.message);
-      return res.status(500).json({ ok: false, error: 'Erro interno.' });
+      return res.status(500).json({ ok: false, error: 'Erro interno ao processar a solicitação.' });
     }
   },
 };
