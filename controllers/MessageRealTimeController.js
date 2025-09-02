@@ -34,15 +34,19 @@ const MessageRealTimeController = {
     try {
       const { allowedCodigoHexes, sinceTs, untilTs, limit } = req.body || {};
 
-      // Valida os códigos permitidos
+      // Valida os códigos permitidos (mantido)
       if (!Array.isArray(allowedCodigoHexes) || allowedCodigoHexes.length === 0) {
         return res
           .status(400)
           .json({ message: 'A propriedade "allowedCodigoHexes" deve ser um array não vazio.' });
       }
 
-      // Garantimos que o allowedCodigoHexes seja tratado como um Set (otimiza o filtro abaixo)
-      const allowedSet = new Set(allowedCodigoHexes.map((hex) => String(hex).trim()));
+      // NORMALIZA allowedCodigoHexes: trim + lowerCase e usa Set (alteração mínima)
+      const allowedSet = new Set(
+        allowedCodigoHexes
+          .map((hex) => String(hex).trim().toLowerCase())
+          .filter(Boolean)
+      );
 
       // Calcula os timestamps do dia atual no horário de Brasília, caso os filtros não sejam fornecidos
       const { sinceTs: defaultSince, untilTs: defaultUntil } = getDayTimestampsInUTC();
@@ -56,13 +60,40 @@ const MessageRealTimeController = {
       // Busca mensagens no buffer
       const allMessages = getBufferedMessages(filters);
 
-      // Filtra as mensagens pelo número serial permitido
+      // Extrator resiliente do numero_serial (root ou dentro de payload; payload pode ser string JSON)
+      function getNumeroSerial(msg) {
+        if (!msg) return null;
+
+        // Tenta direto no root
+        const rootSerial =
+          msg.numero_serial ?? msg.Numero_Serial ?? msg.serial ?? msg.device_id;
+        if (rootSerial != null) return String(rootSerial).trim().toLowerCase();
+
+        // Tenta dentro de payload
+        let p = msg.payload;
+        if (typeof p === 'string') {
+          try {
+            p = JSON.parse(p);
+          } catch (e) {
+            // payload não é JSON válido; segue
+          }
+        }
+        if (p && typeof p === 'object') {
+          const fromPayload =
+            p.numero_serial ?? p.Numero_Serial ?? p.serial ?? p.device_id;
+          if (fromPayload != null) return String(fromPayload).trim().toLowerCase();
+        }
+
+        return null;
+        }
+
+      // Filtra as mensagens pelo número serial permitido (comparação normalizada e Set.has)
       const filteredMessages = allMessages.filter((msg) => {
-        const serial = String(msg.numero_serial || '').trim(); // Garantindo string e removendo espaços
-        const isAllowed = Array.from(allowedSet).some((allowed) => allowed === serial); // Verifica se qualquer valor no allowedSet corresponde
+        const serial = getNumeroSerial(msg);
+        const isAllowed = !!serial && allowedSet.has(serial);
         if (!isAllowed) {
           console.log(
-            `[DEBUG] Mensagem ignorada. Numero_serial: "${serial}", Permitidos: ${[...allowedSet]}`
+            `[DEBUG] Mensagem ignorada. Numero_serial: "${serial ?? ''}", Permitidos: ${[...allowedSet]}`
           );
         }
         return isAllowed;
